@@ -10,6 +10,7 @@ import (
 	"github.com/lestrrat-go/backoff/v2"
 	"github.com/nats-io/nats.go"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -163,10 +164,7 @@ func (s *JetStreamStore) translateClusterWatchEvent(update nats.KeyValueEntry) (
 	case nats.KeyValuePut:
 		cluster := &corev1.Cluster{}
 		if err := protojson.Unmarshal(update.Value(), cluster); err != nil {
-			s.logger.With(
-				"cluster", update.Key(),
-				"error", err,
-			).Warn("failed to unmarshal cluster")
+			s.logger.Warn("failed to unmarshal cluster", logger.Err(err), "cluster", update.Key())
 			return storage.WatchEvent[*corev1.Cluster]{}, false
 		}
 		cluster.SetResourceVersion(fmt.Sprint(update.Revision()))

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rancher/opni/pkg/caching"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/management"
 	"github.com/rancher/opni/pkg/storage"
 	"github.com/rancher/opni/plugins/alerting/apis/alertops"
@@ -17,7 +18,6 @@ import (
 	"github.com/rancher/opni/plugins/alerting/pkg/node_backend"
 	"github.com/rancher/opni/plugins/metrics/apis/cortexadmin"
 	"github.com/rancher/opni/plugins/metrics/apis/cortexops"
-	"go.uber.org/zap"
 
 	"github.com/nats-io/nats.go"
 	alertingClient "github.com/rancher/opni/pkg/alerting/client"
@@ -46,23 +46,19 @@ func (p *Plugin) UseManagementAPI(client managementv1.ManagementClient) {
 	cfg, err := client.GetConfig(context.Background(),
 		&emptypb.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
-		p.logger.With(
-			"err", err,
-		).Error("Failed to get mgmnt config")
+		p.logger.Error("Failed to get mgmnt config", logger.Err(err))
 		os.Exit(1)
 	}
 	objectList, err := machinery.LoadDocuments(cfg.Documents)
 	if err != nil {
-		p.logger.With(
-			"err", err,
-		).Error("failed to load config")
+		p.logger.Error("failed to load config", logger.Err(err))
 		os.Exit(1)
 	}
 	objectList.Visit(func(config *v1beta1.GatewayConfig) {
 		p.gatewayConfig.Set(config)
 		backend, err := machinery.ConfigureStorageBackend(p.ctx, &config.Spec.Storage)
 		if err != nil {
-			p.logger.With(zap.Error(err)).Error("failed to configure storage backend")
+			p.logger.Error("failed to configure storage backend", logger.Err(err))
 			os.Exit(1)
 		}
 		p.storageBackend.Set(backend)
@@ -79,7 +75,7 @@ func (p *Plugin) UseManagementAPI(client managementv1.ManagementClient) {
 		}
 		p.configureDriver(p.ctx,
 			driverutil.NewOption("alertingOptions", opt),
-			driverutil.NewOption("logger", p.logger.Named("alerting-manager")),
+			driverutil.NewOption("logger", p.logger.WithGroup("alerting-manager")),
 			driverutil.NewOption("subscribers", []chan []alertingClient.AlertingPeer{p.clusterNotifier}),
 		)
 	})
@@ -120,7 +116,7 @@ func (p *Plugin) UseKeyValueStore(client system.KeyValueStoreClient) {
 		natsutil.WithNatsOptions([]nats.Option{
 			nats.ErrorHandler(func(nc *nats.Conn, s *nats.Subscription, err error) {
 				if s != nil {
-					p.logger.Error("nats : async error in %q/%q: %v", s.Subject, s.Queue, err)
+					p.logger.Error("nats : async error in:", "subject", s.Subject, "queue", s.Queue, logger.Err(err))
 				} else {
 					p.logger.Warn("nats : async error outside subscription")
 				}
@@ -128,7 +124,7 @@ func (p *Plugin) UseKeyValueStore(client system.KeyValueStoreClient) {
 		}),
 	)
 	if err != nil {
-		p.logger.With("err", err).Error("fatal error connecting to NATs")
+		p.logger.Error("fatal error connecting to NATs", logger.Err(err))
 	}
 	p.natsConn.Set(nc)
 	mgr, err := p.natsConn.Get().JetStream()
@@ -146,13 +142,13 @@ func (p *Plugin) UseKeyValueStore(client system.KeyValueStoreClient) {
 		}
 		clStatus, err := p.GetClusterStatus(p.ctx, &emptypb.Empty{})
 		if err != nil {
-			p.logger.With("err", err).Error("failed to get cluster status")
+			p.logger.Error("failed to get cluster status", logger.Err(err))
 			return
 		}
 		if clStatus.State == alertops.InstallState_Installed || clStatus.State == alertops.InstallState_InstallUpdating {
 			syncInfo, err := p.getSyncInfo(p.ctx)
 			if err != nil {
-				p.logger.With("err", err).Error("failed to get sync info")
+				p.logger.Error("failed to get sync info", logger.Err(err))
 			} else {
 				for _, comp := range p.Components() {
 					comp.Sync(p.ctx, syncInfo)
@@ -160,11 +156,11 @@ func (p *Plugin) UseKeyValueStore(client system.KeyValueStoreClient) {
 			}
 			conf, err := p.GetClusterConfiguration(p.ctx, &emptypb.Empty{})
 			if err != nil {
-				p.logger.With("err", err).Error("failed to get cluster configuration")
+				p.logger.Error("failed to get cluster configuration", logger.Err(err))
 				return
 			}
 			peers := listPeers(int(conf.GetNumReplicas()))
-			p.logger.Infof("reindexing known alerting peers to : %v", peers)
+			p.logger.Info("reindexing known alerting peers to:", "peers", peers)
 			p.AlertingClient.MemberlistClient().SetKnownPeers(peers)
 			for _, comp := range p.Components() {
 				comp.SetConfig(server.Config{
@@ -184,7 +180,7 @@ func (p *Plugin) UseAPIExtensions(intf system.ExtensionClientInterface) {
 	services := []string{"CortexAdmin", "CortexOps"}
 	cc, err := intf.GetClientConn(p.ctx, services...)
 	if err != nil {
-		p.logger.With("err", err).Error("failed to get required clients for alerting : %s", strings.Join(services, ","))
+		p.logger.Error("failed to get required clients for alerting", "clients", strings.Join(services, ","), logger.Err(err))
 		if p.ctx.Err() != nil {
 			// Plugin is shutting down, don't exit
 			return
@@ -207,7 +203,7 @@ func (p *Plugin) handleDriverNotifications() {
 			p.logger.Info("shutting down cluster driver update handler")
 			return
 		case knownPeers := <-p.clusterNotifier:
-			p.logger.Infof("updating known peers : %v", knownPeers)
+			p.logger.Info("updating known peers", "peers", knownPeers)
 			p.AlertingClient.MemberlistClient().SetKnownPeers(knownPeers)
 			serverCfg := server.Config{
 				Client: p.AlertingClient,

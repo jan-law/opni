@@ -3,11 +3,12 @@ package management
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -15,7 +16,7 @@ import (
 type DashboardSettingsManager struct {
 	lock   sync.RWMutex
 	kv     storage.KeyValueStore
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 }
 
 func (m *DashboardSettingsManager) GetDashboardSettings(
@@ -33,18 +34,14 @@ func (m *DashboardSettingsManager) GetDashboardSettings(
 	if globalSettings, err := m.kv.Get(ctx, "settings/global"); err == nil {
 		if err := proto.Unmarshal(globalSettings, settings.Global); err != nil {
 			// ignore errors
-			m.logger.With(
-				zap.Error(err),
-			).Warn("failed to unmarshal global settings")
+			m.logger.Warn("failed to unmarshal global settings", logger.Err(err))
 		}
 	}
 
 	if userSettings, err := m.kv.Get(ctx, "settings/user"); err == nil {
 		if err := json.Unmarshal(userSettings, &settings.User); err != nil {
 			// ignore errors
-			m.logger.With(
-				zap.Error(err),
-			).Warn("failed to unmarshal user settings")
+			m.logger.Warn("failed to unmarshal user settings", logger.Err(err))
 		}
 	}
 

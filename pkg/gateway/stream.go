@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/kralicky/totem"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/metrics"
 	"go.opentelemetry.io/otel/attribute"
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,7 +47,7 @@ func (ir *internalRegistrar[T]) RegisterService(s *grpc.ServiceDesc, impl any) {
 
 type StreamServer struct {
 	streamv1.UnimplementedStreamServer
-	logger                   *zap.SugaredLogger
+	logger                   *slog.Logger
 	handler                  ConnectionHandler
 	clusterStore             storage.ClusterStore
 	services                 []util.ServicePack[any]
@@ -64,10 +65,10 @@ func NewStreamServer(
 	handler ConnectionHandler,
 	clusterStore storage.ClusterStore,
 	metricsRegisterer prometheus.Registerer,
-	lg *zap.SugaredLogger,
+	lg *slog.Logger,
 ) *StreamServer {
 	srv := &StreamServer{
-		logger:            lg.Named("grpc"),
+		logger:            lg.WithGroup("grpc"),
 		handler:           handler,
 		clusterStore:      clusterStore,
 		metricsRegisterer: metricsRegisterer,
@@ -89,7 +90,7 @@ func (s *StreamServer) getProviderForId(agentId string) *metric.MeterProvider {
 		otelprometheus.WithoutTargetInfo(),
 	)
 	if err != nil {
-		s.logger.With(zap.Error(err)).Panic("failed to initialize stream metrics exporter")
+		panic("failed to initialize stream metrics exporter")
 	}
 
 	provider := metric.NewMeterProvider(metric.WithReader(exporter),
@@ -129,10 +130,7 @@ func (s *StreamServer) Connect(stream streamv1.Stream_ConnectServer) error {
 		Id: id,
 	})
 	if err != nil {
-		s.logger.With(
-			zap.Error(err),
-			"id", id,
-		).Error("failed to get cluster")
+		s.logger.Error("failed to get cluster", logger.Err(err), "id", id)
 		return err
 	}
 	eventC, err := s.clusterStore.WatchCluster(ctx, c)
@@ -146,10 +144,7 @@ func (s *StreamServer) Connect(stream streamv1.Stream_ConnectServer) error {
 		splicedStream, err := streamClient.Connect(ctx)
 		name := fmt.Sprintf("gateway|%s", r.name)
 		if err != nil {
-			s.logger.With(
-				zap.String("clusterId", c.Id),
-				zap.Error(err),
-			).Warn("failed to connect to remote stream, skipping")
+			s.logger.Warn("failed to connect to remote stream, skipping", logger.Err(err), "clusterId", c.Id)
 			continue
 		}
 		if err := ts.Splice(splicedStream,
@@ -159,10 +154,7 @@ func (s *StreamServer) Connect(stream streamv1.Stream_ConnectServer) error {
 				semconv.ServiceInstanceIDKey.String(id),
 			)),
 		); err != nil {
-			s.logger.With(
-				zap.String("clusterId", c.Id),
-				zap.Error(err),
-			).Warn("failed to splice remote stream, skipping")
+			s.logger.Warn("failed to splice remote stream, skipping", "clusterId", c.Id, logger.Err(err))
 			continue
 		}
 	}
@@ -181,15 +173,11 @@ func (s *StreamServer) Connect(stream streamv1.Stream_ConnectServer) error {
 	select {
 	case err = <-errC:
 		if err != nil {
-			s.logger.With(
-				zap.Error(err),
-			).Warn("agent stream disconnected")
+			s.logger.Warn("agent stream disconnected", logger.Err(err))
 		}
 		return status.Error(codes.Unavailable, err.Error())
 	case <-ctx.Done():
-		s.logger.With(
-			zap.Error(ctx.Err()),
-		).Info("agent stream closing")
+		s.logger.Info("agent stream closing", "error", ctx.Err())
 		err := ctx.Err()
 		if errors.Is(err, storage.ErrObjectDeleted) {
 			return status.Error(codes.Unauthenticated, err.Error())
@@ -199,32 +187,24 @@ func (s *StreamServer) Connect(stream streamv1.Stream_ConnectServer) error {
 }
 
 func (s *StreamServer) RegisterService(desc *grpc.ServiceDesc, impl any) {
-	s.logger.With(
-		zap.String("service", desc.ServiceName),
-	).Debug("registering service")
+	s.logger.Debug("registering service", "service", desc.ServiceName)
 	if len(desc.Streams) > 0 {
-		s.logger.With(
-			zap.String("service", desc.ServiceName),
-		).Panic("failed to register service: nested streams are currently not supported")
+		panic("failed to register service: nested streams are currently not supported")
 	}
 	s.services = append(s.services, util.PackService(desc, impl))
 }
 
 func (s *StreamServer) registerInternalService(desc *grpc.ServiceDesc, impl any) {
-	s.logger.With(
-		zap.String("service", desc.ServiceName),
-	).Debug("registering internal service")
+	s.logger.Debug("registering internal service", "service", desc.ServiceName)
 	if len(desc.Streams) > 0 {
-		s.logger.With(
-			zap.String("service", desc.ServiceName),
-		).Panic("failed to register internal service: nested streams are currently not supported")
+		panic("failed to register internal service: nested streams are currently not supported")
 	}
 	s.internalServices = append(s.internalServices, util.PackService(desc, impl))
 }
 
 func (s *StreamServer) OnPluginLoad(ext types.StreamAPIExtensionPlugin, md meta.PluginMeta, cc *grpc.ClientConn) {
 	lg := s.logger.With(
-		zap.String("plugin", md.Filename()),
+		"plugin", md.Filename(),
 	)
 	s.streamPluginsMu.Lock()
 	defer s.streamPluginsMu.Unlock()
@@ -236,12 +216,12 @@ func (s *StreamServer) OnPluginLoad(ext types.StreamAPIExtensionPlugin, md meta.
 
 	internalStream, err := ext.ConnectInternal(context.Background())
 	if err != nil {
-		lg.With(zap.Error(err)).Error("failed to connect to internal plugin stream")
+		lg.Error("failed to connect to internal plugin stream", logger.Err(err))
 		return
 	}
 	headerMd, err := internalStream.Header()
 	if err != nil {
-		lg.With(zap.Error(err)).Error("failed to connect to internal plugin stream")
+		lg.Error("failed to connect to internal plugin stream", logger.Err(err))
 		return
 	}
 	var accepted bool
@@ -254,9 +234,7 @@ func (s *StreamServer) OnPluginLoad(ext types.StreamAPIExtensionPlugin, md meta.
 	}
 	go func() {
 		if err != nil {
-			lg.With(
-				zap.Error(err),
-			).Error("failed to connect to internal plugin stream")
+			lg.Error("failed to connect to internal plugin stream", logger.Err(err))
 			return
 		}
 		ts, err := totem.NewServer(
@@ -270,9 +248,7 @@ func (s *StreamServer) OnPluginLoad(ext types.StreamAPIExtensionPlugin, md meta.
 			),
 		)
 		if err != nil {
-			lg.With(
-				zap.Error(err),
-			).Error("failed to create internal plugin stream server")
+			lg.Error("failed to create internal plugin stream server", logger.Err(err))
 			return
 		}
 
@@ -284,9 +260,7 @@ func (s *StreamServer) OnPluginLoad(ext types.StreamAPIExtensionPlugin, md meta.
 
 		err = <-errC
 		if err != nil {
-			s.logger.With(
-				zap.Error(err),
-			).Warn("internal plugin stream disconnected")
+			s.logger.Warn("internal plugin stream disconnected", logger.Err(err))
 		}
 	}()
 }

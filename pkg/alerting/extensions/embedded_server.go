@@ -9,6 +9,7 @@ deploymed node in the AlertManager cluster.
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/rancher/opni/pkg/alerting/cache"
@@ -16,7 +17,6 @@ import (
 	"github.com/rancher/opni/pkg/alerting/shared"
 	alertingv1 "github.com/rancher/opni/pkg/apis/alerting/v1"
 	"github.com/rancher/opni/pkg/logger"
-	"go.uber.org/zap"
 
 	// add profiles
 	_ "net/http/pprof"
@@ -25,7 +25,7 @@ import (
 var defaultSeverity = alertingv1.OpniSeverity_Info.String()
 
 type EmbeddedServer struct {
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 	// maxSize of the combined caches
 	lub int
 	// layered caches
@@ -36,7 +36,7 @@ type EmbeddedServer struct {
 }
 
 func NewEmbeddedServer(
-	lg *zap.SugaredLogger,
+	lg *slog.Logger,
 	lub int,
 	sendK8s bool,
 ) *EmbeddedServer {
@@ -64,7 +64,7 @@ func StartOpniEmbeddedServer(
 	opniAddr string,
 	sendK8s bool,
 ) *http.Server {
-	lg := logger.NewPluginLogger().Named("opni.alerting")
+	lg := logger.NewPluginLogger().WithGroup("opni.alerting")
 	es := NewEmbeddedServer(lg, 125, sendK8s)
 	mux := http.NewServeMux()
 
@@ -85,7 +85,7 @@ func StartOpniEmbeddedServer(
 		Handler: mux,
 	}
 	go func() {
-		lg.With("addr", opniAddr).Info("starting opni embedded server")
+		lg.Info("starting opni embedded server", "addr", opniAddr)
 		err := hookServer.ListenAndServe()
 		if !errors.Is(err, http.ErrServerClosed) {
 			panic(err)

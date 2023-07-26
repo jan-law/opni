@@ -116,7 +116,7 @@ func (s *otlpShipper) Publish(ctx context.Context, tokens *bufio.Scanner) error 
 			}
 
 			if len(entries) >= s.batchSize {
-				s.lg.Infof("batching %d logs", len(entries))
+				s.lg.Info("batching logs", "count", len(entries))
 
 				s.wgCounter.Add(1)
 				err := s.converter.Batch(entries)
@@ -227,7 +227,7 @@ func (s *otlpShipper) exportLogs(ctx context.Context, logs plog.Logs) {
 
 	resp, err := s.client.Export(ctx, req)
 	if err != nil {
-		s.lg.With("error", err).Error("failed to ship logs")
+		s.lg.With(zap.Error(err)).Error("failed to ship logs")
 		s.collectedErrorMessages = append(s.collectedErrorMessages, err.Error())
 		s.failureCount += len(req.GetResourceLogs())
 		return
@@ -235,7 +235,7 @@ func (s *otlpShipper) exportLogs(ctx context.Context, logs plog.Logs) {
 	if resp.GetPartialSuccess().GetRejectedLogRecords() > 0 {
 		s.collectedErrorMessages = append(s.collectedErrorMessages, resp.GetPartialSuccess().GetErrorMessage())
 	}
-	s.lg.Infof("shipped %d batch", len(req.GetResourceLogs()))
+	s.lg.Info("shipped batch", "count", len(req.GetResourceLogs()))
 }
 
 func (s *otlpShipper) newEntry() *entry.Entry {

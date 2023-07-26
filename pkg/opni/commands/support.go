@@ -28,13 +28,11 @@ import (
 	"github.com/rancher/opni/pkg/update"
 	"github.com/rancher/opni/pkg/update/noop"
 	"github.com/rancher/opni/pkg/urn"
-	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/pkg/util/waitctx"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/ttacon/chalk"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -62,8 +60,7 @@ func BuildSupportBootstrapCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx, ca := context.WithCancel(waitctx.FromContext(cmd.Context()))
 			defer ca()
-
-			agentlg := logger.New(logger.WithLogLevel(util.Must(zapcore.ParseLevel(logLevel))))
+			agentlg := logger.NewZap()
 
 			if configFile == "" {
 				// find config file
@@ -78,9 +75,7 @@ func BuildSupportBootstrapCmd() *cobra.Command {
 					wd, _ := os.Getwd()
 					agentlg.Infof(`could not find a config file in ["%s", "$home/.opni], and --config was not given`, wd)
 				default:
-					agentlg.With(
-						zap.Error(err),
-					).Fatal("an error occurred while searching for a config file")
+					agentlg.With(zap.Error(err)).Fatal("an error occurred while searching for a config file")
 				}
 			}
 
@@ -88,9 +83,7 @@ func BuildSupportBootstrapCmd() *cobra.Command {
 			if configFile != "" {
 				objects, err := config.LoadObjectsFromFile(configFile)
 				if err != nil {
-					agentlg.With(
-						zap.Error(err),
-					).Fatal("failed to load config")
+					agentlg.With(zap.Error(err)).Fatal("failed to load config")
 				}
 				if ok := objects.Visit(func(config *v1beta1.SupportAgentConfig) {
 					agentConfig = config
@@ -194,7 +187,7 @@ func BuildSupportPingCmd() *cobra.Command {
 			ctx, ca := context.WithCancel(waitctx.FromContext(cmd.Context()))
 			defer ca()
 
-			agentlg := logger.New(logger.WithLogLevel(util.Must(zapcore.ParseLevel(logLevel))))
+			agentlg := logger.NewZap(logger.WithLogLevel(logger.ParseLevel(logLevel)))
 
 			config := supportagentconfig.MustLoadConfig(configFile, agentlg)
 
@@ -205,7 +198,7 @@ func BuildSupportPingCmd() *cobra.Command {
 				).Fatal("failed to get gateway client")
 			}
 
-			ctx = handleUpdates(ctx, agentlg.Zap(), gatewayClient)
+			ctx = handleUpdates(ctx, agentlg, gatewayClient)
 
 			cc, futureErr := gatewayClient.Connect(ctx)
 			if futureErr.IsSet() {
@@ -250,7 +243,7 @@ func BuildSupportShipCmd() *cobra.Command {
 			ctx, ca := context.WithCancel(waitctx.FromContext(cmd.Context()))
 			defer ca()
 
-			agentlg := logger.New(logger.WithLogLevel(util.Must(zapcore.ParseLevel(logLevel))))
+			agentlg := logger.NewZap()
 
 			config := supportagentconfig.MustLoadConfig(configFile, agentlg)
 
@@ -261,19 +254,15 @@ func BuildSupportShipCmd() *cobra.Command {
 				).Fatal("failed to get gateway client")
 			}
 
-			ctx = handleUpdates(ctx, agentlg.Zap(), gatewayClient)
+			ctx = handleUpdates(ctx, agentlg, gatewayClient)
 
 			cc, futureErr := gatewayClient.Connect(ctx)
 			if futureErr.IsSet() {
-				agentlg.With(
-					zap.Error(futureErr.Get()),
-				).Fatal("failed to connect to gateway")
+				agentlg.Fatal("failed to connect to gateway", futureErr.Get())
 			}
 
 			if cc == nil {
-				agentlg.With(
-					zap.Error(futureErr.Get()),
-				).Fatal("failed to connect to gateway")
+				agentlg.Fatal("failed to connect to gateway", futureErr.Get())
 			}
 
 			md := metadata.New(map[string]string{
@@ -288,11 +277,11 @@ func BuildSupportShipCmd() *cobra.Command {
 
 			switch Distribution(args[0]) {
 			case RKE:
-				shipRKELogs(ctx, cc, agentlg.Zap())
+				shipRKELogs(ctx, cc, agentlg)
 			case K3S:
-				shipK3sLogs(ctx, cc, agentlg.Zap())
+				shipK3sLogs(ctx, cc, agentlg)
 			case RKE2:
-				shipRKE2Logs(ctx, cc, agentlg.Zap())
+				shipRKE2Logs(ctx, cc, agentlg)
 			default:
 				agentlg.Error("invalid cluster type, must be one of rke, k3s, or rke2")
 			}
@@ -313,7 +302,7 @@ func BuildSupportPasswordCmd() *cobra.Command {
 		Use:   "password",
 		Short: "Shows the initial password for Opensearch Dashboards",
 		Run: func(cmd *cobra.Command, args []string) {
-			agentlg := logger.New(logger.WithLogLevel(util.Must(zapcore.ParseLevel(logLevel))))
+			agentlg := logger.NewZap(logger.WithLogLevel(logger.ParseLevel(logLevel)))
 
 			kr, err := supportagentconfig.LoadKeyring(getRetrievePassword)
 			if err != nil {
@@ -359,7 +348,7 @@ func configureSupportAgentBootstrap(
 	flags *pflag.FlagSet,
 	tokenData string,
 	endpoint string,
-	agentlg logger.ExtendedSugaredLogger,
+	agentlg *zap.SugaredLogger,
 ) (bootstrap.Bootstrapper, error) {
 	strategyConfig, err := trust.BuildConfigFromFlags(flags)
 	if err != nil {
@@ -373,9 +362,8 @@ func configureSupportAgentBootstrap(
 	token, err := tokens.ParseHex(tokenData)
 	if err != nil {
 		agentlg.With(
-			zap.Error(err),
-			zap.String("token", fmt.Sprintf("[redacted (len: %d)]", len(tokenData))),
-		).Error("failed to parse token")
+			"token", fmt.Sprintf("[redacted (len: %d]", len(tokenData)),
+		).Errorw("failed to parse token", zap.Error(err))
 		return nil, err
 	}
 

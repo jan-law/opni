@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,7 +43,6 @@ import (
 	"github.com/rancher/opni/plugins/alerting/pkg/apis/node"
 	"github.com/rancher/opni/plugins/alerting/pkg/apis/rules"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -80,7 +80,7 @@ type TestEnvAlertingClusterDriver struct {
 	enabled          *atomic.Bool
 	ConfigFile       string
 	stateMu          *sync.RWMutex
-	logger           *zap.SugaredLogger
+	logger           *slog.Logger
 
 	*shared.AlertingClusterOptions
 
@@ -106,7 +106,7 @@ func NewTestEnvAlertingClusterDriver(env *test.Environment, options TestEnvAlert
 		panic(err)
 	}
 	configFile := path.Join(dir, "alertmanager.yaml")
-	lg := logger.NewPluginLogger().Named("alerting-test-cluster-driver")
+	lg := logger.NewPluginLogger().WithGroup("alerting-test-cluster-driver")
 	lg = lg.With("config-file", configFile)
 
 	initial := &atomic.Bool{}
@@ -360,7 +360,7 @@ func (l *TestEnvAlertingClusterDriver) StartAlertingBackendServer(
 	ctxCa, cancelFunc := context.WithCancel(ctx)
 	alertmanagerCmd := exec.CommandContext(ctxCa, opniBin, alertmanagerArgs...)
 	plugins.ConfigureSysProcAttr(alertmanagerCmd)
-	l.logger.With("alertmanager-port", webPort, "opni-port", opniPort).Info("Starting AlertManager")
+	l.logger.Info("Starting AlertManager", "alertmanager-port", webPort, "opni-port", opniPort)
 	session, err := testutil.StartCmd(alertmanagerCmd)
 	if err != nil {
 		if !errors.Is(ctx.Err(), context.Canceled) {
@@ -387,7 +387,7 @@ func (l *TestEnvAlertingClusterDriver) StartAlertingBackendServer(
 
 	syncerCmd := exec.CommandContext(ctxCa, opniBin, syncerArgs...)
 	plugins.ConfigureSysProcAttr(syncerCmd)
-	l.logger.With("port", syncerPort).Info("Starting AlertManager Syncer")
+	l.logger.Info("Starting AlertManager Syncer", "port", syncerPort)
 	_, err = testutil.StartCmd(syncerCmd)
 	if err != nil {
 		if !errors.Is(ctx.Err(), context.Canceled) {
@@ -397,7 +397,7 @@ func (l *TestEnvAlertingClusterDriver) StartAlertingBackendServer(
 		}
 	}
 
-	l.logger.With("address", fmt.Sprintf("http://127.0.0.1:%d", webPort)).Info("AlertManager started")
+	l.logger.Info("AlertManager started", "address", fmt.Sprintf("http://127.0.0.1:%d", webPort))
 	waitctx.Permissive.Go(ctx, func() {
 		<-ctx.Done()
 		cmd, _ := session.G()

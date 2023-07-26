@@ -3,11 +3,12 @@ package util
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 
 	"github.com/cisco-open/k8s-objectmatcher/patch"
+	sloglogger "github.com/rancher/opni/pkg/logger"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -52,7 +53,7 @@ func (r *ReconcilerState) SetBackoffCtx(ctx context.Context, cancel context.Canc
 // (obj, shouldExist))
 type ReconcileItem lo.Tuple2[client.Object, bool]
 
-func ReconcileObject(logger *zap.SugaredLogger, k8sClient client.Client, namespace string, item ReconcileItem) error {
+func ReconcileObject(logger *slog.Logger, k8sClient client.Client, namespace string, item ReconcileItem) error {
 	desired, shouldExist := item.A, item.B
 	// get the object
 	key := client.ObjectKeyFromObject(desired)
@@ -101,9 +102,7 @@ func ReconcileObject(logger *zap.SugaredLogger, k8sClient client.Client, namespa
 	// update the object
 	patchResult, err := patch.DefaultPatchMaker.Calculate(current, desired, patch.IgnoreStatusFields())
 	if err != nil {
-		logger.With(
-			zap.Error(err),
-		).Warn("could not match objects")
+		logger.Warn("could not match objects", sloglogger.Err(err))
 		return err
 	}
 	if patchResult.IsEmpty() {
@@ -113,11 +112,8 @@ func ReconcileObject(logger *zap.SugaredLogger, k8sClient client.Client, namespa
 	logger.Info("resource diff")
 
 	if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(desired); err != nil {
-		logger.With(
-			zap.Error(err),
-		).Error("failed to set last applied annotation")
+		logger.Error("failed to set last applied annotation", sloglogger.Err(err))
 	}
-
 	metaAccessor := meta.NewAccessor()
 
 	currentResourceVersion, err := metaAccessor.ResourceVersion(current)

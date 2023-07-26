@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rancher/opni/plugins/metrics/apis/node"
 	"github.com/rancher/opni/plugins/metrics/apis/remotewrite"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -23,7 +23,7 @@ import (
 type HttpServer struct {
 	apiextensions.UnsafeHTTPAPIExtensionServer
 
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 
 	remoteWriteClientMu sync.RWMutex
 	remoteWriteClient   clients.Locker[remotewrite.RemoteWriteClient]
@@ -33,7 +33,7 @@ type HttpServer struct {
 	enabled atomic.Bool
 }
 
-func NewHttpServer(ct health.ConditionTracker, lg *zap.SugaredLogger) *HttpServer {
+func NewHttpServer(ct health.ConditionTracker, lg *slog.Logger) *HttpServer {
 	return &HttpServer{
 		logger:     lg,
 		conditions: ct,

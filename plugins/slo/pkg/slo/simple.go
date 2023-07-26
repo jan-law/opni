@@ -788,7 +788,7 @@ func NewWindowRange(sloPeriod string) []string {
 func DetectActiveWindows(severity string, matrix *prommodel.Matrix) ([]*sloapi.AlertFiringWindows, error) {
 	returnWindows := []*sloapi.AlertFiringWindows{}
 	if matrix == nil {
-		return nil, fmt.Errorf("Got empty alerting window %s matrix from cortex", severity)
+		return nil, fmt.Errorf("got empty alerting window %s matrix from cortex", severity)
 	}
 	for _, row := range *matrix {
 		for _, rowValue := range row.Values {

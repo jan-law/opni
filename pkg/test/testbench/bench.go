@@ -3,6 +3,7 @@ package testbench
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"time"
 
@@ -13,15 +14,15 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/rancher/opni/internal/bench"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/test"
-	"go.uber.org/zap"
 )
 
 // Adapted from cortex benchtool
 
 type BenchRunner struct {
 	client    remote.WriteClient
-	logger    *zap.SugaredLogger
+	Logger    *slog.Logger
 	batchChan chan bench.BatchReq
 }
 
@@ -48,34 +49,30 @@ func NewBenchRunner(env *test.Environment, agent string, desc bench.WorkloadDesc
 	batchChan := make(chan bench.BatchReq, 100)
 	go func() {
 		if err := workload.GenerateWriteBatch(env.Context(), agent, 100, batchChan); err != nil {
-			env.Logger.Errorf("error generating write batch: %v", err)
+			env.Logger.Error("error generating write batch: ", logger.Err(err))
 		}
 	}()
 
 	return &BenchRunner{
 		client:    writeClient,
-		logger:    env.Logger.Named("bench").With(zap.String("agent", agent)),
+		Logger:    env.Logger.WithGroup("bench").With("agent", agent),
 		batchChan: batchChan,
 	}, nil
 }
 
 func (b *BenchRunner) StartWorker(ctx context.Context) {
 	go func() {
-		b.logger.Info("worker started")
+		b.Logger.Info("worker started")
 		for {
 			select {
 			case batchReq := <-b.batchChan:
 				if err := b.sendBatch(ctx, batchReq.Batch); err != nil {
-					b.logger.With(
-						zap.Error(err),
-					).Error("failed to send batch")
+					b.Logger.Error("failed to send batch", logger.Err(err))
 				}
 				batchReq.PutBack <- batchReq.Batch
 				batchReq.Wg.Done()
 			case <-ctx.Done():
-				b.logger.With(
-					zap.Error(ctx.Err()),
-				).Warn("worker stopped")
+				b.Logger.Warn("worker stopped", "error", ctx.Err())
 				return
 			}
 		}

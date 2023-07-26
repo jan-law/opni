@@ -5,17 +5,18 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rancher/opni/pkg/logger"
+	slogsampling "github.com/samber/slog-sampling"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.uber.org/zap"
 )
 
 type ForwarderOptions struct {
-	logger    *zap.SugaredLogger
+	logger    *slog.Logger
 	tlsConfig *tls.Config
 	name      string
 	destHint  string
@@ -29,7 +30,7 @@ func (o *ForwarderOptions) apply(opts ...ForwarderOption) {
 	}
 }
 
-func WithLogger(logger *zap.SugaredLogger) ForwarderOption {
+func WithLogger(logger *slog.Logger) ForwarderOption {
 	return func(o *ForwarderOptions) {
 		o.logger = logger
 	}
@@ -55,18 +56,18 @@ func WithDestHint(hint string) ForwarderOption {
 
 func To(addr string, opts ...ForwarderOption) gin.HandlerFunc {
 	defaultLogger := logger.New(
-		logger.WithSampling(&zap.SamplingConfig{
-			Initial:    1,
-			Thereafter: 0,
+		logger.WithSampling(&slogsampling.ThresholdSamplingOption{
+			Threshold: 1,
+			Rate:      0,
 		}),
-	).Named("fwd")
+	).WithGroup("fwd")
 	options := &ForwarderOptions{
 		logger: defaultLogger,
 	}
 	options.apply(opts...)
 
 	if options.name != "" {
-		options.logger = options.logger.Named(options.name)
+		options.logger = options.logger.WithGroup(options.name)
 	}
 
 	transport := otelhttp.NewTransport(&http.Transport{
@@ -97,7 +98,7 @@ func To(addr string, opts ...ForwarderOption) gin.HandlerFunc {
 			"for", forwardedFor,
 			"host", forwardedHost,
 			"scheme", c.Request.URL.Scheme,
-		).Debugf("=>")
+		).Debug("=>")
 
 		c.Header("X-Forwarded-For", forwardedFor)
 		c.Header("X-Forwarded-Host", forwardedHost)
@@ -108,10 +109,7 @@ func To(addr string, opts ...ForwarderOption) gin.HandlerFunc {
 
 		resp, err := transport.RoundTrip(c.Request)
 		if err != nil {
-			options.logger.With(
-				zap.Error(err),
-				"req", c.FullPath(),
-			).Error("error forwarding request")
+			options.logger.Error("error forwarding request", "req", c.FullPath(), logger.Err(err))
 			c.String(http.StatusInternalServerError, err.Error())
 			return
 		}

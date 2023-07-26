@@ -1,7 +1,8 @@
 package gateway
 
 import (
-	"go.uber.org/zap"
+	"log/slog"
+
 	tokenbucket "golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -10,7 +11,7 @@ import (
 
 type RatelimiterInterceptor struct {
 	tokenBucket *tokenbucket.Limiter
-	lg          *zap.SugaredLogger
+	lg          *slog.Logger
 }
 
 type ratelimiterOptions struct {
@@ -38,7 +39,7 @@ func WithBurst(burst int) RatelimiterOption {
 	}
 }
 
-func NewRateLimiterInterceptor(lg *zap.SugaredLogger, opts ...RatelimiterOption) *RatelimiterInterceptor {
+func NewRateLimiterInterceptor(lg *slog.Logger, opts ...RatelimiterOption) *RatelimiterInterceptor {
 	options := &ratelimiterOptions{
 		rate:  10,
 		burst: 50,
@@ -55,7 +56,7 @@ func NewRateLimiterInterceptor(lg *zap.SugaredLogger, opts ...RatelimiterOption)
 }
 
 func (r *RatelimiterInterceptor) allow() bool {
-	r.lg.Debugf("ratelimit: %f available", r.tokenBucket.Tokens())
+	r.lg.Debug("ratelimit:", "available", r.tokenBucket.Tokens())
 	return r.tokenBucket.Allow()
 }
 

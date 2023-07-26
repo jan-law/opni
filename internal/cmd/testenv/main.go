@@ -26,6 +26,7 @@ import (
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
 	storagev1 "github.com/rancher/opni/pkg/apis/storage/v1"
 	"github.com/rancher/opni/pkg/dashboard"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/test"
 	"github.com/rancher/opni/pkg/test/freeport"
 	"github.com/rancher/opni/pkg/test/testlog"
@@ -101,7 +102,7 @@ func main() {
 	var kPort int
 	var localAgentOnce sync.Once
 	addAgent := func(rw http.ResponseWriter, r *http.Request) {
-		testlog.Log.Infof("%s %s", r.Method, r.URL.Path)
+		testlog.Log.Info("http:", "method", r.Method, "path", r.URL.Path)
 		switch r.Method {
 		case http.MethodPost:
 			body := struct {
@@ -182,7 +183,7 @@ func main() {
 	}
 	go func() {
 		addr := fmt.Sprintf("127.0.0.1:%d", environment.GetPorts().TestEnvironment)
-		testlog.Log.Infof(chalk.Green.Color("Test environment API listening on %s"), addr)
+		testlog.Log.Info(chalk.Green.Color("Test environment API listening on"), "addr", addr)
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			panic(err)
 		}
@@ -195,14 +196,14 @@ func main() {
 	for i := 0; i < 100; i++ {
 		environment.SimulateKubeObject(kPort)
 	}
-	testlog.Log.Infof(chalk.Green.Color("Instrumentation server listening on %d"), iPort)
+	testlog.Log.Info(chalk.Green.Color("Instrumentation server listening on"), "port", iPort)
 	var client managementv1.ManagementClient
 	if enableGateway {
 		client = environment.NewManagementClient()
 	}
 
 	showHelp := func() {
-		testlog.Log.Infof(chalk.Green.Color("Kubernetes metric server listening on %d"), kPort)
+		testlog.Log.Info(chalk.Green.Color("Kubernetes metric server listening on"), "port", kPort)
 		testlog.Log.Info(chalk.Blue.Color("Press (ctrl+c) or (q) to stop test environment"))
 		if enableGateway {
 			testlog.Log.Info(chalk.Blue.Color("Press (space) to open the web dashboard"))
@@ -235,7 +236,7 @@ func main() {
 			}
 			dashboardSrv, err := dashboard.NewServer(&environment.GatewayConfig().Spec.Management)
 			if err != nil {
-				testlog.Log.Error(err)
+				testlog.Log.Error("error", logger.Err(err))
 				return
 			}
 			go func() {
@@ -262,7 +263,7 @@ func main() {
 			case 'p':
 				path = "profile"
 			default:
-				testlog.Log.Error("Invalid pprof command: %c", rn)
+				testlog.Log.Error("Invalid pprof command:", "command", rn)
 				return
 			}
 			url := fmt.Sprintf("http://localhost:%d/debug/pprof/%s", environment.GetPorts().TestEnvironment, path)
@@ -270,14 +271,14 @@ func main() {
 			cmd := exec.CommandContext(environment.Context(), "go", "tool", "pprof", "-http", fmt.Sprintf("localhost:%d", port), url)
 			session, err := testutil.StartCmd(cmd)
 			if err != nil {
-				testlog.Log.Error(err)
+				testlog.Log.Error("error", logger.Err(err))
 			} else {
 				waitctx.Go(environment.Context(), func() {
 					<-environment.Context().Done()
 					session.Wait()
 				})
 			}
-			testlog.Log.Infof("Starting pprof server on %s", url)
+			testlog.Log.Info("Starting pprof server on", "url", url)
 			return
 		}
 
@@ -296,17 +297,17 @@ func main() {
 					Ttl: durationpb.New(1 * time.Minute),
 				})
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 					return
 				}
 				token, err := tokens.FromBootstrapToken(bt)
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 					return
 				}
 				certInfo, err := client.CertsInfo(environment.Context(), &emptypb.Empty{})
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 					return
 				}
 
@@ -314,11 +315,11 @@ func main() {
 					strings.NewReader(fmt.Sprintf(`{"token": "%s", "pins": ["%s"]}`,
 						token.EncodeHex(), certInfo.Chain[len(certInfo.Chain)-1].Fingerprint)))
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 					return
 				}
 				if resp.StatusCode != http.StatusOK {
-					testlog.Log.Errorf("%s", resp.Status)
+					testlog.Log.Error("status", "status", resp.Status)
 					return
 				}
 			}()
@@ -330,7 +331,7 @@ func main() {
 					testlog.Log.Error("No agents to stop")
 					return
 				}
-				testlog.Log.Infof("Stopping agent %d", agentCancelFuncs[0])
+				testlog.Log.Info("Stopping agent", "agent", agentCancelFuncs[0])
 				agentCancelFuncs[0]()
 				agentCancelFuncs = agentCancelFuncs[1:]
 			}()
@@ -352,7 +353,7 @@ func main() {
 					},
 				})
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 				}
 			}()
 		case 'U':
@@ -365,7 +366,7 @@ func main() {
 				opsClient := cortexops.NewCortexOpsClient(environment.ManagementClientConn())
 				_, err := opsClient.UninstallCluster(environment.Context(), &emptypb.Empty{})
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 				}
 			}()
 		case 'm':
@@ -374,7 +375,7 @@ func main() {
 				defer capabilityMu.Unlock()
 				clusters, err := client.ListClusters(environment.Context(), &managementv1.ListClustersRequest{})
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 					return
 				}
 				for _, cluster := range clusters.Items {
@@ -386,7 +387,7 @@ func main() {
 						},
 					})
 					if err != nil {
-						testlog.Log.Error(err)
+						testlog.Log.Error("error", logger.Err(err))
 					}
 
 					conditionsClient := environment.NewAlertConditionsClient()
@@ -406,7 +407,7 @@ func main() {
 						GoldenSignal: alertingv1.GoldenSignal_Errors,
 					})
 					if err != nil {
-						testlog.Log.Error(err)
+						testlog.Log.Error("error", logger.Err(err))
 					}
 				}
 			}()
@@ -416,7 +417,7 @@ func main() {
 				defer capabilityMu.Unlock()
 				clusters, err := client.ListClusters(environment.Context(), &managementv1.ListClustersRequest{})
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 					return
 				}
 				for _, cluster := range clusters.Items {
@@ -427,13 +428,13 @@ func main() {
 						},
 					})
 					if err != nil {
-						testlog.Log.Error(err)
+						testlog.Log.Error("error", logger.Err(err))
 					}
 				}
 			}()
 		case 'i':
-			testlog.Log.Infof("Temp directory: %s", environment.GetTempDirectory())
-			testlog.Log.Infof("Ports: %s", environment.GetTempDirectory())
+			testlog.Log.Info("Temp directory:", "dir", environment.GetTempDirectory())
+			testlog.Log.Info("Ports:", "ports", environment.GetTempDirectory())
 			ports := environment.GetPorts()
 			// print the field name and int value for each field (all ints)
 			v := reflect.ValueOf(ports)
@@ -441,7 +442,7 @@ func main() {
 				name := v.Type().Field(i).Name
 				value := v.Field(i).Interface().(int)
 				envVarName := v.Type().Field(i).Tag.Get("env")
-				testlog.Log.Infof("  %s: %d (env: %s)", name, value, envVarName)
+				testlog.Log.Info("field", "name", name, "val", value, "envVarName", envVarName)
 			}
 		case 'p':
 			pPressed = true
@@ -453,7 +454,7 @@ func main() {
 		case 'r':
 			clusters, err := client.ListClusters(environment.Context(), &managementv1.ListClustersRequest{})
 			if err != nil {
-				testlog.Log.Error(err)
+				testlog.Log.Error("error", logger.Err(err))
 				return
 			}
 			if _, err := client.CreateRole(environment.Context(), &corev1.Role{
@@ -464,14 +465,14 @@ func main() {
 					},
 				},
 			}); err != nil {
-				testlog.Log.Error(err)
+				testlog.Log.Error("error", logger.Err(err))
 			}
 			if _, err := client.CreateRoleBinding(environment.Context(), &corev1.RoleBinding{
 				Id:       "testenv-rb",
 				RoleId:   "testenv-role",
 				Subjects: []string{"testenv"},
 			}); err != nil {
-				testlog.Log.Error(err)
+				testlog.Log.Error("error", logger.Err(err))
 			}
 			for _, cluster := range clusters.Items {
 				cluster.Metadata.Labels["visible"] = "true"
@@ -479,7 +480,7 @@ func main() {
 					Cluster: cluster.Reference(),
 					Labels:  cluster.GetLabels(),
 				}); err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 				}
 			}
 		case 'h':
@@ -488,7 +489,7 @@ func main() {
 			opsClient := alertops.NewAlertingAdminClient(environment.ManagementClientConn())
 			_, err := opsClient.InstallCluster(environment.Context(), &emptypb.Empty{})
 			if err != nil {
-				testlog.Log.Error(err)
+				testlog.Log.Error("error", logger.Err(err))
 			} else {
 				_, err = opsClient.ConfigureCluster(environment.Context(), &alertops.ClusterConfiguration{
 					NumReplicas:             3,
@@ -502,7 +503,7 @@ func main() {
 					},
 				})
 				if err != nil {
-					testlog.Log.Error(err)
+					testlog.Log.Error("error", logger.Err(err))
 				}
 			}
 
@@ -512,7 +513,7 @@ func main() {
 				DeleteData: true,
 			})
 			if err != nil {
-				testlog.Log.Error(err)
+				testlog.Log.Error("error", logger.Err(err))
 			}
 		}
 	}
@@ -525,7 +526,7 @@ func main() {
 			for {
 				rn, err := t.ReadRune()
 				if err != nil {
-					testlog.Log.Panic(err)
+					panic(err)
 				}
 				handleKey(rn)
 			}
@@ -539,7 +540,7 @@ func main() {
 				if strings.HasPrefix(cmd, "sleep:") {
 					d, err := time.ParseDuration(strings.TrimPrefix(cmd, "sleep:"))
 					if err != nil {
-						testlog.Log.Panic(err)
+						panic(err)
 					}
 					time.Sleep(d)
 				} else {

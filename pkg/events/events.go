@@ -3,13 +3,14 @@ package events
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/opensearch-project/opensearch-go/opensearchutil"
 	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/util"
-	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
@@ -43,7 +44,7 @@ type EventCollector struct {
 	queue     workqueue.RateLimitingInterface
 	informer  informercorev1.EventInformer
 	endpoint  string
-	logger    *zap.SugaredLogger
+	logger    *slog.Logger
 }
 
 type EventCollectorOptions struct {
@@ -70,15 +71,17 @@ func NewEventCollector(ctx context.Context, endpoint string, opts ...EventCollec
 	}
 	options.apply(opts...)
 
-	lg := logger.New().Named("events")
+	lg := logger.New().WithGroup("events")
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		lg.Fatalf("failed to create config: %s", err)
+		lg.Error("failed to create config", "fatal", err)
+		os.Exit(1)
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		lg.Fatalf("failed to create clientset: %s", err)
+		lg.Error("failed to create clientset", "fatal", err)
+		os.Exit(1)
 	}
 
 	factory := informers.NewSharedInformerFactory(clientset, time.Minute)
@@ -140,7 +143,7 @@ func (c *EventCollector) runWorker() {
 func (c *EventCollector) enqueueEvent(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
-		c.logger.Errorf("could't get key for event %+v: %s", obj, err)
+		c.logger.Error("could't get key for event", "obj", obj, logger.Err(err))
 	}
 	c.queue.Add(timestampedEvent{
 		key:  key,
@@ -161,12 +164,12 @@ func (c *EventCollector) processNextItem() bool {
 		return true
 	}
 	if c.maxRetries == 0 || c.queue.NumRequeues(event) < c.maxRetries {
-		c.logger.Warnf("failed to process event %s, requeueing: %v", event, err)
+		c.logger.Warn("failed to process event, requeueing:", "event", event, logger.Err(err))
 		c.queue.AddRateLimited(event)
 		return true
 	}
 
-	c.logger.Errorf("failed to process event %s, giving up: %v", event, err)
+	c.logger.Error("failed to process event, giving up:", "event", event, logger.Err(err))
 	c.queue.Forget(event)
 	utilruntime.HandleError(err)
 	return true

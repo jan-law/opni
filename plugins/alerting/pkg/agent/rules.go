@@ -2,14 +2,15 @@ package agent
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	healthpkg "github.com/rancher/opni/pkg/health"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/plugins/alerting/pkg/agent/drivers"
 	"github.com/rancher/opni/plugins/alerting/pkg/apis/node"
 	"github.com/rancher/opni/plugins/alerting/pkg/apis/rules"
-	"go.uber.org/zap"
 )
 
 var RuleSyncInterval = time.Minute * 2
@@ -19,7 +20,7 @@ type RuleStreamer struct {
 
 	parentCtx context.Context
 
-	lg *zap.SugaredLogger
+	lg *slog.Logger
 
 	ruleStreamCtx  context.Context
 	stopRuleStream context.CancelFunc
@@ -33,7 +34,7 @@ var _ drivers.ConfigPropagator = (*RuleStreamer)(nil)
 
 func NewRuleStreamer(
 	ctx context.Context,
-	lg *zap.SugaredLogger,
+	lg *slog.Logger,
 	ct healthpkg.ConditionTracker,
 	nodeDriver drivers.NodeDriver,
 ) *RuleStreamer {
@@ -88,11 +89,11 @@ func (r *RuleStreamer) configureRuleStreamer(nodeId string, cfg *node.AlertingCa
 func (r *RuleStreamer) sync(ctx context.Context) {
 	ruleManifest, err := r.nodeDriver.DiscoverRules(ctx)
 	if err != nil {
-		r.lg.Warnf("failed to discover rules %s", err)
+		r.lg.Warn("failed to discover rules", logger.Err(err))
 	}
-	r.lg.Infof("discovered %d rules", len(ruleManifest.Rules))
+	r.lg.Info("discovered rules", "count", len(ruleManifest.Rules))
 	if _, err := r.ruleSyncClient.SyncRules(ctx, ruleManifest); err != nil {
-		r.lg.Warnf("failed to sync rules %s", err)
+		r.lg.Warn("failed to sync rules", logger.Err(err))
 	}
 }
 

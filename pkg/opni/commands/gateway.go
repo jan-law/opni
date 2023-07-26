@@ -5,6 +5,7 @@ package commands
 import (
 	"context"
 	"errors"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -25,7 +26,6 @@ import (
 	"github.com/rancher/opni/pkg/util/waitctx"
 	"github.com/spf13/cobra"
 	"github.com/ttacon/chalk"
-	"go.uber.org/zap"
 	"k8s.io/client-go/rest"
 
 	_ "github.com/rancher/opni/pkg/oci/kubernetes"
@@ -53,7 +53,8 @@ func BuildGatewayCmd() *cobra.Command {
 			if errors.Is(err, rest.ErrNotInCluster) {
 				inCluster = false
 			} else {
-				lg.Fatalf("failed to create config: %s", err)
+				lg.Error("failed to create config", "fatal", err)
+				os.Exit(1)
 			}
 		}
 
@@ -82,24 +83,19 @@ func BuildGatewayCmd() *cobra.Command {
 					server := machinery.NewNoauthServer(ctx, ap)
 					waitctx.Go(ctx, func() {
 						if err := server.ListenAndServe(ctx); err != nil {
-							lg.With(
-								zap.Error(err),
-							).Warn("noauth server exited with error")
+							lg.Warn("noauth server exited with error", logger.Err(err))
 						}
 					})
 				}
 			},
 		)
 		if !found {
-			lg.With(
-				zap.String("config", configLocation),
-			).Fatal("config file does not contain a GatewayConfig object")
+			lg.Error("config file does not contain a GatewayConfig object", "config", configLocation)
+			os.Exit(1)
 		}
 
-		lg.With(
-			"dir", gatewayConfig.Spec.Plugins.Dir,
-		).Info("loading plugins")
-		pluginLoader := plugins.NewPluginLoader(plugins.WithLogger(lg.Named("gateway")))
+		lg.Info("loading plugins", "dir", gatewayConfig.Spec.Plugins.Dir)
+		pluginLoader := plugins.NewPluginLoader(plugins.WithLogger(lg.WithGroup("gateway")))
 
 		lifecycler := config.NewLifecycler(objects)
 		g := gateway.NewGateway(ctx, gatewayConfig, pluginLoader,
@@ -118,32 +114,26 @@ func BuildGatewayCmd() *cobra.Command {
 		// start web server
 		d, err := dashboard.NewServer(&gatewayConfig.Spec.Management)
 		if err != nil {
-			lg.With(
-				zap.Error(err),
-			).Error("failed to initialize web dashboard")
+			lg.Error("failed to initialize web dashboard", logger.Err(err))
 		} else {
 			pluginLoader.Hook(hooks.OnLoadingCompleted(func(int) {
 				waitctx.AddOne(ctx)
 				defer waitctx.Done(ctx)
 				if err := d.ListenAndServe(ctx); err != nil {
-					lg.With(
-						zap.Error(err),
-					).Warn("dashboard server exited with error")
+					lg.Warn("dashboard server exited with error", logger.Err(err))
 				}
 			}))
 		}
 
 		pluginLoader.Hook(hooks.OnLoadingCompleted(func(numLoaded int) {
-			lg.Infof("loaded %d plugins", numLoaded)
+			lg.Info("loaded plugins", "count", numLoaded)
 		}))
 
 		pluginLoader.Hook(hooks.OnLoadingCompleted(func(int) {
 			waitctx.AddOne(ctx)
 			defer waitctx.Done(ctx)
 			if err := m.ListenAndServe(ctx); err != nil {
-				lg.With(
-					zap.Error(err),
-				).Warn("management server exited with error")
+				lg.Warn("management server exited with error", logger.Err(err))
 			}
 		}))
 
@@ -151,9 +141,7 @@ func BuildGatewayCmd() *cobra.Command {
 			waitctx.AddOne(ctx)
 			defer waitctx.Done(ctx)
 			if err := g.ListenAndServe(ctx); err != nil {
-				lg.With(
-					zap.Error(err),
-				).Warn("gateway server exited with error")
+				lg.Warn("gateway server exited with error", logger.Err(err))
 			}
 		}))
 
@@ -172,9 +160,8 @@ func BuildGatewayCmd() *cobra.Command {
 			}
 
 			if err != nil {
-				lg.With(
-					zap.Error(err),
-				).Fatal("failed to get reload channel from lifecycler")
+				lg.Error("failed to get reload channel from lifecycler", logger.Err(err))
+				os.Exit(1)
 			}
 			select {
 			case <-c:

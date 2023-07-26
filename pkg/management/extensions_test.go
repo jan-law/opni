@@ -416,7 +416,7 @@ var _ = Describe("Extensions", Ordered, Label("slow"), func() {
 				Expect(err).NotTo(HaveOccurred())
 				resp.Body.Close()
 				msg := string(body)
-				testlog.Log.Debugf("code: %d, msg: %s", resp.StatusCode, msg)
+				testlog.Log.Debug("resp", "code", resp.StatusCode, "msg", msg)
 				if req.err != nil {
 					Expect(resp.StatusCode).To(Equal(400))
 					Expect(msg).To(Equal(req.err))

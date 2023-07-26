@@ -8,8 +8,8 @@ import (
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
 	"github.com/rancher/opni/pkg/config"
 	"github.com/rancher/opni/pkg/config/meta"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/validation"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v2"
 )
@@ -21,9 +21,7 @@ func (m *Server) GetConfig(
 	lg := m.logger
 	objects, err := m.lifecycler.GetObjectList()
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("failed to get object list")
+		lg.Error("failed to get object list", logger.Err(err))
 		return nil, err
 	}
 	gc := &managementv1.GatewayConfig{}
@@ -69,9 +67,7 @@ func (m *Server) UpdateConfig(
 	}
 
 	if err := m.lifecycler.UpdateObjectList(objList); err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("failed to update object list")
+		lg.Error("failed to update object list", logger.Err(err))
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil

@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"text/template"
 
 	"emperror.dev/errors"
@@ -14,7 +15,6 @@ import (
 	promdiscover "github.com/rancher/opni/pkg/resources/collector/discovery"
 	"github.com/rancher/opni/pkg/util/k8sutil"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -27,7 +27,7 @@ type Reconciler struct {
 	collector *corev1beta1.Collector
 	tmpl      *template.Template
 	ctx       context.Context
-	logger    *zap.SugaredLogger
+	logger    *slog.Logger
 	*promdiscover.PrometheusDiscovery
 }
 
@@ -44,7 +44,7 @@ func NewReconciler(
 		collector:           instance,
 		tmpl:                otel.OTELTemplates,
 		ctx:                 ctx,
-		logger:              logger.NewPluginLogger().Named("collector-controller"),
+		logger:              logger.NewPluginLogger().WithGroup("collector-controller"),
 		PrometheusDiscovery: nil,
 	}
 }
@@ -91,7 +91,7 @@ func (r *Reconciler) Reconcile() (retResult *reconcile.Result, retErr error) {
 
 	// check metrics service discovery
 	metricsConfig, tlsSecrets := r.withPrometheusCrdDiscovery(r.getMetricsConfig()) // check metrics SD
-	r.logger.Debugf("metrics config : %v", metricsConfig.Spec)
+	r.logger.Debug("metrics config:", "config", metricsConfig.Spec)
 	aggCfg := r.getAggregatorConfig(lo.FromPtr(metricsConfig)) // generate aggregator struct
 	config, _ = r.aggregatorConfigMap(aggCfg)                  // generate aggregator configmap
 	resourceList = append(resourceList, r.metricsTlsAssets(tlsSecrets))

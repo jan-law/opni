@@ -2,6 +2,7 @@ package noauth
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rancher/opni/pkg/auth"
@@ -10,19 +11,18 @@ import (
 	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/noauth"
 	"github.com/rancher/opni/pkg/util"
-	"go.uber.org/zap"
 )
 
 type NoauthMiddleware struct {
 	openidMiddleware auth.HTTPMiddleware
 	noauthConfig     *noauth.ServerConfig
-	logger           *zap.SugaredLogger
+	logger           *slog.Logger
 }
 
 var _ auth.Middleware = (*NoauthMiddleware)(nil)
 
 func New(ctx context.Context, config v1beta1.AuthProviderSpec) (*NoauthMiddleware, error) {
-	lg := logger.New().Named("noauth")
+	lg := logger.New().WithGroup("noauth")
 	conf, err := util.DecodeStruct[noauth.ServerConfig](config.Options)
 	if err != nil {
 		return nil, err

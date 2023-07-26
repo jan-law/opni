@@ -3,13 +3,13 @@ package destination
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/rancher/opni/apis"
 	"github.com/rancher/opni/pkg/alerting/drivers/config"
 	"github.com/rancher/opni/pkg/alerting/shared"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,7 +32,7 @@ func init() {
 }
 
 type K8sDestination struct {
-	lg *zap.SugaredLogger
+	lg *slog.Logger
 
 	namespace string
 	recorder  record.EventRecorder
@@ -75,7 +75,7 @@ func NewEventSink(
 }
 
 func NewK8sDestination(
-	lg *zap.SugaredLogger,
+	lg *slog.Logger,
 ) (Destination, error) {
 	ns, ok := os.LookupEnv("POD_NAMESPACE")
 	if !ok {

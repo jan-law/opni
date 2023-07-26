@@ -7,11 +7,11 @@ import (
 	"strconv"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/lestrrat-go/backoff/v2"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
 )
 
@@ -64,9 +64,7 @@ func (e *EtcdStore) UpdateRole(
 			Then(clientv3.OpPut(key, string(data))).
 			Commit()
 		if err != nil {
-			e.Logger.With(
-				zap.Error(err),
-			).Error("error updating role")
+			e.Logger.Error("error updating role", logger.Err(err))
 			return err
 		}
 		if !txnResp.Succeeded {
@@ -167,9 +165,7 @@ func (e *EtcdStore) UpdateRoleBinding(
 			Then(clientv3.OpPut(key, string(data))).
 			Commit()
 		if err != nil {
-			e.Logger.With(
-				zap.Error(err),
-			).Error("error updating role binding")
+			e.Logger.Error("error updating role binding", logger.Err(err))
 			return err
 		}
 		if !txnResp.Succeeded {

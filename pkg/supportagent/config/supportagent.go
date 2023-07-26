@@ -14,7 +14,6 @@ import (
 	"github.com/rancher/opni/pkg/ident"
 	"github.com/rancher/opni/pkg/ident/identserver"
 	"github.com/rancher/opni/pkg/keyring"
-	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/machinery"
 	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
@@ -29,7 +28,7 @@ const (
 	defaultFile = "keyring"
 )
 
-func MustLoadConfig(configFile string, lg logger.ExtendedSugaredLogger) *v1beta1.SupportAgentConfig {
+func MustLoadConfig(configFile string, lg *zap.SugaredLogger) *v1beta1.SupportAgentConfig {
 	if configFile == "" {
 		// find config file
 		path, err := config.FindSupportConfig()

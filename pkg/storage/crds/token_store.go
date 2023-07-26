@@ -135,9 +135,7 @@ func (c *CRDStore) UpdateToken(ctx context.Context, ref *corev1.Reference, mutat
 
 // garbageCollectToken performs a best-effort deletion of an expired token.
 func (c *CRDStore) garbageCollectToken(token *corev1beta1.BootstrapToken) {
-	c.logger.With(
-		"token", token.GetName(),
-	).Debug("garbage-collecting expired token")
+	c.logger.Debug("garbage-collecting expired token", "token", token.GetName())
 	retry.OnError(retry.DefaultBackoff, func(err error) bool {
 		return !k8serrors.IsNotFound(err)
 	}, func() error {

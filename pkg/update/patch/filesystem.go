@@ -5,14 +5,15 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
 	controlv1 "github.com/rancher/opni/pkg/apis/control/v1"
 	"github.com/rancher/opni/pkg/config/v1beta1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/spf13/afero"
-	"go.uber.org/zap"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
@@ -27,24 +28,24 @@ type FilesystemCache struct {
 	CacheMetricsTracker
 	config     v1beta1.FilesystemCacheSpec
 	fs         afero.Afero
-	logger     *zap.SugaredLogger
+	logger     *slog.Logger
 	cacheGroup singleflight.Group
 	patcher    BinaryPatcher
 }
 
 var _ Cache = (*FilesystemCache)(nil)
 
-func NewFilesystemCache(fsys afero.Fs, conf v1beta1.FilesystemCacheSpec, patcher BinaryPatcher, lg *zap.SugaredLogger) (Cache, error) {
+func NewFilesystemCache(fsys afero.Fs, conf v1beta1.FilesystemCacheSpec, patcher BinaryPatcher, lg *slog.Logger) (Cache, error) {
 	if err := fsys.MkdirAll(conf.Dir, 0777); err != nil {
-		lg.Errorf("failed to create cache directory: %v", err)
+		lg.Error("failed to create cache directory:", logger.Err(err))
 		return nil, err
 	}
 	if err := fsys.MkdirAll(filepath.Join(conf.Dir, PluginsDir), 0777); err != nil {
-		lg.Errorf("faIled to create plugins directory: %v", err)
+		lg.Error("faIled to create plugins directory:", logger.Err(err))
 		return nil, err
 	}
 	if err := fsys.MkdirAll(filepath.Join(conf.Dir, PatchesDir), 0777); err != nil {
-		lg.Errorf("failed to create patches directory: %v", err)
+		lg.Error("failed to create patches directory:", logger.Err(err))
 		return nil, err
 	}
 	cache := &FilesystemCache{
@@ -62,7 +63,7 @@ func NewFilesystemCache(fsys afero.Fs, conf v1beta1.FilesystemCacheSpec, patcher
 
 func (p *FilesystemCache) Archive(manifest *controlv1.PluginArchive) error {
 	var group errgroup.Group
-	p.logger.Infof("compressing and archiving plugins...")
+	p.logger.Info("compressing and archiving plugins...")
 	for _, item := range manifest.Items {
 		destPath := p.path(PluginsDir, item.Metadata.Digest)
 		// check if the plugin already exists
@@ -84,9 +85,7 @@ func (p *FilesystemCache) Archive(manifest *controlv1.PluginArchive) error {
 				continue
 			}
 
-			p.logger.With(
-				"plugin", item.Metadata.Path,
-			).Warn("existing cached plugin is corrupted, overwriting")
+			p.logger.Warn("existing cached plugin is corrupted, overwriting", "plugin", item.Metadata.Path)
 		}
 
 		item := item
@@ -112,12 +111,10 @@ func (p *FilesystemCache) Archive(manifest *controlv1.PluginArchive) error {
 		})
 	}
 	if err := group.Wait(); err != nil {
-		p.logger.With(
-			zap.Error(err),
-		).Error("failed to archive one or more plugins")
+		p.logger.Error("failed to archive one or more plugins", logger.Err(err))
 		return err
 	}
-	p.logger.Debugf("added %d new plugins to cache", len(manifest.Items))
+	p.logger.Debug("added new plugins to cache", "count", len(manifest.Items))
 	return nil
 }
 
@@ -154,20 +151,13 @@ func (p *FilesystemCache) RequestPatch(oldDigest, newDigest string) ([]byte, err
 			start := time.Now()
 			patchData, err := p.generatePatch(oldDigest, newDigest)
 			if err != nil {
-				lg.With(
-					zap.Error(err),
-				).Error("failed to generate patch")
+				lg.Error("failed to generate patch", logger.Err(err))
 				p.generatePatch(oldDigest, newDigest)
 				return nil, err
 			}
-			lg.With(
-				"took", time.Since(start).String(),
-				"size", len(patchData),
-			).Debug("patch generated")
+			lg.Debug("patch generated", "took", time.Since(start).String(), "size", len(patchData))
 			if err := p.fs.WriteFile(patchPath, patchData, 0644); err != nil {
-				p.logger.With(
-					zap.Error(err),
-				).Error("failed to write patch to disk")
+				p.logger.Error("failed to write patch to disk", logger.Err(err))
 				return nil, err
 			}
 			p.IncPatchCalcSecsTotal(oldDigest, newDigest, float64(time.Since(start).Seconds()))
@@ -211,9 +201,7 @@ func (p *FilesystemCache) GetBinaryFile(dir, hash string) ([]byte, error) {
 
 	if hex.EncodeToString(b2hash.Sum(nil)) != hash {
 		defer p.Clean(hash)
-		p.logger.With(
-			"hash", hash,
-		).Error("binary corrupted: hash mismatch")
+		p.logger.Error("binary corrupted: hash mismatch", "hash", hash)
 		return nil, fmt.Errorf("binary corrupted: hash mismatch")
 	}
 	return pluginData, nil
@@ -249,7 +237,7 @@ func (p *FilesystemCache) Clean(hashes ...string) {
 	if pluginsRemoved+patchesRemoved > 0 {
 		p.AddToPluginCount(-pluginsRemoved)
 		p.AddToPatchCount(-patchesRemoved)
-		p.logger.Infof("cleaned %d unreachable objects", pluginsRemoved+patchesRemoved)
+		p.logger.Info("cleaned unreachable objects", "count", pluginsRemoved+patchesRemoved)
 	}
 
 	p.recomputeDiskStats()

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"syscall"
 
@@ -14,8 +15,6 @@ import (
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
 	"github.com/ttacon/chalk"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/codes"
 
 	agentv2 "github.com/rancher/opni/pkg/agent/v2"
@@ -51,46 +50,42 @@ func BuildAgentV2Cmd() *cobra.Command {
 			defer ca()
 
 			tracing.Configure("agentv2")
-			agentlg := logger.New(logger.WithLogLevel(util.Must(zapcore.ParseLevel(logLevel))))
-
+			level := logger.ParseLevel(logLevel)
+			agentlg := logger.New(logger.WithLogLevel(level))
 			if configFile == "" {
 				// find config file
 				path, err := config.FindConfig()
 				if err != nil {
 					if errors.Is(err, config.ErrConfigNotFound) {
 						wd, _ := os.Getwd()
-						agentlg.Fatalf(`could not find a config file in ["%s","/etc/opni"], and --config was not given`, wd)
+						agentlg.Error(`could not find a config file in working directory or ["/etc/opni"], and --config was not given`, "workingDir", wd)
 					}
-					agentlg.With(
-						zap.Error(err),
-					).Fatal("an error occurred while searching for a config file")
+					agentlg.Error("an error occurred while searching for a config file")
+					os.Exit(1)
 				}
-				agentlg.With(
-					"path", path,
-				).Info("using config file")
+				agentlg.Info("using config file", "path", path)
 				configFile = path
 			}
 
 			objects, err := config.LoadObjectsFromFile(configFile)
 			if err != nil {
-				agentlg.With(
-					zap.Error(err),
-				).Fatal("failed to load config")
+				lg.Error("failed to load config")
+				os.Exit(1)
 			}
 			var agentConfig *v1beta1.AgentConfig
 			if ok := objects.Visit(func(config *v1beta1.AgentConfig) {
 				agentConfig = config
 			}); !ok {
-				agentlg.Fatal("no agent config found in config file")
+				agentlg.Error("no agent config found in config file")
+				os.Exit(1)
 			}
 
 			var bootstrapper bootstrap.Bootstrapper
 			if agentConfig.Spec.ContainsBootstrapCredentials() {
 				bootstrapper, err = configureBootstrapV2(agentConfig, agentlg)
 				if err != nil {
-					agentlg.With(
-						zap.Error(err),
-					).Fatal("failed to configure bootstrap")
+					lg.Error("failed to configure bootstrap")
+					os.Exit(1)
 				}
 			}
 
@@ -99,7 +94,7 @@ func BuildAgentV2Cmd() *cobra.Command {
 				agentv2.WithRebootstrap(rebootstrap),
 			)
 			if err != nil {
-				agentlg.Error(err)
+				agentlg.Error("error", logger.Err(err))
 				return
 			}
 
@@ -118,9 +113,7 @@ func BuildAgentV2Cmd() *cobra.Command {
 				}
 
 				if shouldRestart {
-					agentlg.With(
-						zap.Error(err),
-					).Warn("preparing to restart agent")
+					agentlg.Warn("preparing to restart agent", logger.Err(err))
 					ca()
 					plugin.CleanupClients()
 					waitctx.Wait(ctx)
@@ -128,7 +121,7 @@ func BuildAgentV2Cmd() *cobra.Command {
 					args := append(lo.Without(os.Args, withoutArgs...), extraArgs...)
 					panic(syscall.Exec(os.Args[0], args, os.Environ()))
 				}
-				agentlg.Error(err)
+				agentlg.Error("error", logger.Err(err))
 				return
 			}
 
@@ -143,7 +136,7 @@ func BuildAgentV2Cmd() *cobra.Command {
 	return cmd
 }
 
-func configureBootstrapV2(conf *v1beta1.AgentConfig, agentlg logger.ExtendedSugaredLogger) (bootstrap.Bootstrapper, error) {
+func configureBootstrapV2(conf *v1beta1.AgentConfig, agentlg *slog.Logger) (bootstrap.Bootstrapper, error) {
 	var bootstrapper bootstrap.Bootstrapper
 	var trustStrategy trust.Strategy
 	if conf.Spec.Bootstrap == nil {
@@ -166,10 +159,7 @@ func configureBootstrapV2(conf *v1beta1.AgentConfig, agentlg logger.ExtendedSuga
 			for i, pin := range pins {
 				publicKeyPins[i], err = pkp.DecodePin(pin)
 				if err != nil {
-					agentlg.With(
-						zap.Error(err),
-						zap.String("pin", string(pin)),
-					).Error("failed to parse pin")
+					agentlg.Error("failed to parse pin", logger.Err(err), "pin", string(pin))
 					return nil, err
 				}
 			}
@@ -180,9 +170,7 @@ func configureBootstrapV2(conf *v1beta1.AgentConfig, agentlg logger.ExtendedSuga
 			}
 			trustStrategy, err = conf.Build()
 			if err != nil {
-				agentlg.With(
-					zap.Error(err),
-				).Error("error configuring PKP trust strategy")
+				agentlg.Error("error configuring PKP trust strategy", logger.Err(err))
 				return nil, err
 			}
 		case v1beta1.TrustStrategyCACerts:
@@ -191,18 +179,12 @@ func configureBootstrapV2(conf *v1beta1.AgentConfig, agentlg logger.ExtendedSuga
 			for _, path := range paths {
 				data, err := os.ReadFile(path)
 				if err != nil {
-					agentlg.With(
-						zap.Error(err),
-						zap.String("path", path),
-					).Error("failed to read CA cert")
+					agentlg.Error("failed to read CA cert", logger.Err(err), "path", path)
 					return nil, err
 				}
 				cert, err := util.ParsePEMEncodedCert(data)
 				if err != nil {
-					agentlg.With(
-						zap.Error(err),
-						zap.String("path", path),
-					).Error("failed to parse CA cert")
+					agentlg.Error("failed to parse CA cert", logger.Err(err), "path", path)
 					return nil, err
 				}
 				certs = append(certs, cert)
@@ -215,9 +197,7 @@ func configureBootstrapV2(conf *v1beta1.AgentConfig, agentlg logger.ExtendedSuga
 			var err error
 			trustStrategy, err = conf.Build()
 			if err != nil {
-				agentlg.With(
-					zap.Error(err),
-				).Error("error configuring CA Certs trust strategy")
+				agentlg.Error("error configuring CA Certs trust strategy", logger.Err(err))
 				return nil, err
 			}
 		case v1beta1.TrustStrategyInsecure:
@@ -230,19 +210,14 @@ func configureBootstrapV2(conf *v1beta1.AgentConfig, agentlg logger.ExtendedSuga
 			var err error
 			trustStrategy, err = conf.Build()
 			if err != nil {
-				agentlg.With(
-					zap.Error(err),
-				).Error("error configuring insecure trust strategy")
+				agentlg.Error("error configuring insecure trust strategy", logger.Err(err))
 				return nil, err
 			}
 		}
 
 		token, err := tokens.ParseHex(tokenData)
 		if err != nil {
-			agentlg.With(
-				zap.Error(err),
-				zap.String("token", fmt.Sprintf("[redacted (len: %d)]", len(tokenData))),
-			).Error("failed to parse token")
+			agentlg.Error("failed to parse token", logger.Err(err), "token", fmt.Sprintf("[redacted (len: %d]", len(tokenData)))
 			return nil, err
 		}
 		bootstrapper = &bootstrap.ClientConfigV2{

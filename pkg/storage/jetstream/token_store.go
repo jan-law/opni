@@ -10,6 +10,7 @@ import (
 	"github.com/lestrrat-go/backoff/v2"
 	"github.com/nats-io/nats.go"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
 	"github.com/rancher/opni/pkg/tokens"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -86,9 +87,7 @@ func (s *JetStreamStore) UpdateToken(ctx context.Context, ref *corev1.Reference,
 		}
 		mutator(token)
 		if token.Metadata.UsageCount >= token.Metadata.MaxUsages && token.Metadata.MaxUsages > 0 {
-			s.logger.With(
-				"token", token.TokenID,
-			).Debug("delete token because it has reached max usage")
+			s.logger.Debug("delete token because it has reached max usage", "token", token.TokenID)
 			if err := s.kv.Tokens.Delete(token.TokenID); err != nil {
 				if !errors.Is(err, nats.ErrKeyNotFound) {
 					return nil, fmt.Errorf("failed to delete token: %w", err)
@@ -161,15 +160,10 @@ func patchTTL(token *corev1.BootstrapToken, entry nats.KeyValueEntry) {
 
 // garbageCollectToken performs a best-effort deletion of an expired token.
 func (s *JetStreamStore) garbageCollectToken(token *corev1.BootstrapToken) {
-	s.logger.With(
-		"token", token.TokenID,
-	).Debug("garbage-collecting expired token")
+	s.logger.Debug("garbage-collecting expired token", "token", token.TokenID)
 	if err := s.kv.Tokens.Delete(token.TokenID); err != nil {
 		if !errors.Is(err, nats.ErrKeyNotFound) {
-			s.logger.With(
-				"token", token.TokenID,
-				"error", err,
-			).Warn("failed to garbage-collect expired token")
+			s.logger.Warn("failed to garbage-collect expired token", logger.Err(err), "token", token.TokenID)
 		}
 	}
 }

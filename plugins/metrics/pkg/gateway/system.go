@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/rancher/opni/plugins/metrics/apis/node"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 
@@ -13,6 +12,7 @@ import (
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
 	"github.com/rancher/opni/pkg/config/v1beta1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/machinery"
 	"github.com/rancher/opni/pkg/plugins/apis/system"
 	"github.com/rancher/opni/pkg/storage"
@@ -28,25 +28,19 @@ func (p *Plugin) UseManagementAPI(client managementv1.ManagementClient) {
 	p.mgmtClient.Set(client)
 	cfg, err := client.GetConfig(context.Background(), &emptypb.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
-		p.logger.With(
-			zap.Error(err),
-		).Error("failed to get config")
+		p.logger.Error("failed to get config", logger.Err(err))
 		os.Exit(1)
 	}
 	objectList, err := machinery.LoadDocuments(cfg.Documents)
 	if err != nil {
-		p.logger.With(
-			zap.Error(err),
-		).Error("failed to load config")
+		p.logger.Error("failed to load config", logger.Err(err))
 		os.Exit(1)
 	}
 	machinery.LoadAuthProviders(p.ctx, objectList)
 	objectList.Visit(func(config *v1beta1.GatewayConfig) {
 		backend, err := machinery.ConfigureStorageBackend(p.ctx, &config.Spec.Storage)
 		if err != nil {
-			p.logger.With(
-				zap.Error(err),
-			).Error("failed to configure storage backend")
+			p.logger.Error("failed to configure storage backend", logger.Err(err))
 			os.Exit(1)
 		}
 		p.storageBackend.Set(backend)
@@ -55,9 +49,7 @@ func (p *Plugin) UseManagementAPI(client managementv1.ManagementClient) {
 		p.cortexTlsConfig.Set(tlsConfig)
 		clientset, err := cortex.NewClientSet(p.ctx, &config.Spec.Cortex, tlsConfig)
 		if err != nil {
-			p.logger.With(
-				zap.Error(err),
-			).Error("failed to configure cortex clientset")
+			p.logger.Error("failed to configure cortex clientset", logger.Err(err))
 			os.Exit(1)
 		}
 		p.cortexClientSet.Set(clientset)
@@ -77,9 +69,7 @@ func (p *Plugin) UseNodeManagerClient(client capabilityv1.NodeManagerClient) {
 func (p *Plugin) UseKeyValueStore(client system.KeyValueStoreClient) {
 	ctrl, err := task.NewController(p.ctx, "uninstall", system.NewKVStoreClient[*corev1.TaskStatus](client), &p.uninstallRunner)
 	if err != nil {
-		p.logger.With(
-			zap.Error(err),
-		).Error("failed to create task controller")
+		p.logger.Error("failed to create task controller", logger.Err(err))
 		os.Exit(1)
 	}
 	p.uninstallController.Set(ctrl)

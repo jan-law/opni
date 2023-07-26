@@ -3,6 +3,7 @@ package default_driver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	node_drivers "github.com/rancher/opni/plugins/alerting/pkg/agent/drivers"
@@ -14,7 +15,6 @@ import (
 	"github.com/rancher/opni/pkg/util/k8sutil"
 	"github.com/rancher/opni/plugins/alerting/pkg/apis/node"
 	"github.com/rancher/opni/plugins/alerting/pkg/apis/rules"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/durationpb"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubectl/pkg/scheme"
@@ -22,8 +22,8 @@ import (
 )
 
 type NodeDriverOptions struct {
-	K8sClient client.Client      `option:"k8sClient"`
-	Logger    *zap.SugaredLogger `option:"logger"`
+	K8sClient client.Client `option:"k8sClient"`
+	Logger    *slog.Logger  `option:"logger"`
 }
 
 type Driver struct {
@@ -117,7 +117,7 @@ func init() {
 	node_drivers.NodeDrivers.Register("k8s_driver", func(ctx context.Context, opts ...driverutil.Option) (node_drivers.NodeDriver, error) {
 		driverOptions := &NodeDriverOptions{
 			K8sClient: nil,
-			Logger:    logger.NewPluginLogger().Named("alerting").Named("rule-discovery"),
+			Logger:    logger.NewPluginLogger().WithGroup("alerting").WithGroup("rule-discovery"),
 		}
 		if err := driverutil.ApplyOptions(driverOptions, opts...); err != nil {
 			return nil, err

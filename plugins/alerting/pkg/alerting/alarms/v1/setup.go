@@ -12,6 +12,7 @@ import (
 	"github.com/rancher/opni/pkg/alerting/shared"
 	alertingv1 "github.com/rancher/opni/pkg/apis/alerting/v1"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/plugins/metrics/apis/cortexadmin"
 	"gopkg.in/yaml.v3"
 )
@@ -168,7 +169,7 @@ func (p *AlarmServerComponent) handleSystemAlertCreation(
 ) error {
 	err := p.onSystemConditionCreate(newConditionId, conditionName, namespace, k)
 	if err != nil {
-		p.logger.Errorf("failed to create agent condition %s", err)
+		p.logger.Error("failed to create agent condition ", logger.Err(err))
 	}
 	return nil
 }
@@ -182,7 +183,7 @@ func (p *AlarmServerComponent) handleDownstreamCapabilityAlertCreation(
 ) error {
 	err := p.onDownstreamCapabilityConditionCreate(newConditionId, conditionName, namespace, k)
 	if err != nil {
-		p.logger.Errorf("failed to create agent condition %s", err)
+		p.logger.Error("failed to create agent condition ", logger.Err(err))
 	}
 	return nil
 }
@@ -196,7 +197,7 @@ func (p *AlarmServerComponent) handleMonitoringBackendAlertCreation(
 ) error {
 	err := p.onCortexClusterStatusCreate(newConditionId, conditionName, namespace, k)
 	if err != nil {
-		p.logger.Errorf("failed to create cortex cluster condition %s", err)
+		p.logger.Error("failed to create cortex cluster condition ", logger.Err(err))
 	}
 	return nil
 }
@@ -219,7 +220,7 @@ func (p *AlarmServerComponent) handleKubeAlertCreation(ctx context.Context, cond
 		cond.GetRoutingAnnotations(),
 		k, nil, baseKubeRule,
 	)
-	p.logger.With("handler", "kubeStateAlertCreate").Debugf("kube state alert created %v", kubeRuleContent)
+	p.logger.Debug("kube state alert created", "kubeRuleContent", kubeRuleContent, "handler", "kubeStateAlertCreate")
 	if err != nil {
 		return err
 	}
@@ -227,7 +228,7 @@ func (p *AlarmServerComponent) handleKubeAlertCreation(ctx context.Context, cond
 	if err != nil {
 		return err
 	}
-	p.logger.With("Expr", "kube-state").Debugf("%s", string(out))
+	p.logger.Debug(string(out), "Expr", "kube-state")
 	adminClient, err := p.adminClient.GetContext(ctx)
 	if err != nil {
 		return err
@@ -272,7 +273,7 @@ func (p *AlarmServerComponent) handleCpuSaturationAlertCreation(
 	if err != nil {
 		return err
 	}
-	p.logger.With("Expr", "cpu").Debugf("%s", string(out))
+	p.logger.Debug(string(out), "Expr", "cpu")
 	adminClient, err := p.adminClient.GetContext(ctx)
 	if err != nil {
 		return err
@@ -314,7 +315,7 @@ func (p *AlarmServerComponent) handleMemorySaturationAlertCreation(ctx context.C
 	if err != nil {
 		return err
 	}
-	p.logger.With("Expr", "mem").Debugf("%s", string(out))
+	p.logger.Debug(string(out), "Expr", "mem")
 	adminClient, err := p.adminClient.GetContext(ctx)
 	if err != nil {
 		return err
@@ -356,7 +357,7 @@ func (p *AlarmServerComponent) handleFsSaturationAlertCreation(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	p.logger.With("Expr", "fs").Debugf("%s", string(out))
+	p.logger.Debug(string(out), "Expr", "fs")
 	adminClient, err := p.adminClient.GetContext(ctx)
 	if err != nil {
 		return err
@@ -393,7 +394,7 @@ func (p *AlarmServerComponent) handlePrometheusQueryAlertCreation(ctx context.Co
 	if err != nil {
 		return err
 	}
-	p.logger.With("Expr", "user-query").Debugf("%s", out.String())
+	p.logger.Debug(out.String(), "Expr", "user-query")
 	adminClient, err := p.adminClient.GetContext(ctx)
 	if err != nil {
 		return err

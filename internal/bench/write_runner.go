@@ -32,6 +32,7 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/thanos-io/thanos/pkg/discovery/dns"
 	"github.com/thanos-io/thanos/pkg/extprom"
 )
@@ -166,7 +167,7 @@ func (w *WriteBenchmarkRunner) WriteWorker(batchChan chan BatchReq) {
 	for batchReq := range batchChan {
 		err := w.SendBatch(context.Background(), batchReq.Batch)
 		if err != nil {
-			level.Warn(w.logger).Log("msg", "unable to send batch", "err", err)
+			level.Warn(w.logger).Log("msg", "unable to send batch", logger.Err(err))
 		}
 
 		// put back the series buffer
@@ -210,7 +211,7 @@ func (w *WriteBenchmarkRunner) ResolveAddrsLoop(ctx context.Context) {
 		case <-ticker.C:
 			err := w.ResolveAddrs()
 			if err != nil {
-				level.Warn(w.logger).Log("msg", "failed update remote write servers list", "err", err)
+				level.Warn(w.logger).Log("msg", "failed update remote write servers list", logger.Err(err))
 			}
 		case <-ctx.Done():
 			return
@@ -225,7 +226,7 @@ func (w *WriteBenchmarkRunner) ResolveAddrs() error {
 
 	// If some of the dns resolution fails, log the error.
 	if err := w.dnsProvider.Resolve(ctx, []string{w.cfg.Endpoint}); err != nil {
-		level.Error(w.logger).Log("msg", "failed to resolve addresses", "err", err)
+		level.Error(w.logger).Log("msg", "failed to resolve addresses", logger.Err(err))
 	}
 
 	// Fail in case no server address is resolved.

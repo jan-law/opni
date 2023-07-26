@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/resources"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/util/retry"
@@ -31,7 +32,7 @@ func (r *Reconciler) updateImageStatus() (bool, error) {
 			return r.client.Status().Update(r.ctx, r.mc)
 		})
 		if err != nil {
-			lg.Error(err, "failed to update monitoring cluster status")
+			lg.Error("failed to update monitoring cluster status", logger.Err(err))
 			return false, err
 		}
 		return true, nil

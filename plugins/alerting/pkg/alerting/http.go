@@ -3,6 +3,7 @@ package alerting
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"path"
 	"time"
@@ -12,13 +13,12 @@ import (
 	"github.com/rancher/opni/pkg/alerting/client"
 	"github.com/rancher/opni/pkg/logger"
 	httpext "github.com/rancher/opni/pkg/plugins/apis/apiextensions/http"
-	"go.uber.org/zap"
 )
 
 const proxyPath = "/plugin_alerting/alertmanager"
 
 type HttpApiServer struct {
-	lg *zap.SugaredLogger
+	lg *slog.Logger
 
 	readyFunc   func() error
 	healthyFunc func() error
@@ -26,7 +26,7 @@ type HttpApiServer struct {
 }
 
 func NewHttpApiServer(
-	lg *zap.SugaredLogger,
+	lg *slog.Logger,
 	client client.AlertingClient,
 	readyFunc func() error,
 	healthyFunc func() error,

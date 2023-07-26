@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"slices"
@@ -10,6 +11,7 @@ import (
 	opnicorev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
 	"github.com/rancher/opni/pkg/capabilities/wellknown"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/management"
 	"github.com/rancher/opni/pkg/storage"
 	"github.com/rancher/opni/pkg/task"
@@ -18,7 +20,6 @@ import (
 	driver "github.com/rancher/opni/plugins/logging/pkg/gateway/drivers/backend"
 	"github.com/rancher/opni/plugins/logging/pkg/opensearchdata"
 	loggingutil "github.com/rancher/opni/plugins/logging/pkg/util"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -34,7 +35,7 @@ type LoggingBackend struct {
 }
 
 type LoggingBackendConfig struct {
-	Logger              *zap.SugaredLogger             `validate:"required"`
+	Logger              *slog.Logger                   `validate:"required"`
 	StorageBackend      storage.Backend                `validate:"required"`
 	MgmtClient          managementv1.ManagementClient  `validate:"required"`
 	NodeManagerClient   capabilityv1.NodeManagerClient `validate:"required"`
@@ -63,14 +64,12 @@ func (b *LoggingBackend) Initialize(conf LoggingBackendConfig) {
 		go func() {
 			clusters, err := b.MgmtClient.ListClusters(context.Background(), &managementv1.ListClustersRequest{})
 			if err != nil {
-				b.Logger.With(
-					zap.Error(err),
-				).Error("could not list clusters for reconciliation")
+				b.Logger.Error("could not list clusters for reconciliation", logger.Err(err))
 				return
 			}
 
 			if err := b.reconcileClusterMetadata(context.Background(), clusters.Items); err != nil {
-				b.Logger.With(zap.Error(err)).Error("could not reconcile opni agents with metadata index, some agents may not be included")
+				b.Logger.Error("could not reconcile opni agents with metadata index, some agents may not be included", logger.Err(err))
 				return
 			}
 

@@ -2,16 +2,17 @@ package backend
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
 	"github.com/rancher/opni/pkg/config/v1beta1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/plugins/metrics/apis/cortexops"
 	"github.com/rancher/opni/plugins/metrics/apis/node"
 	"github.com/rancher/opni/plugins/metrics/apis/remoteread"
 
 	streamext "github.com/rancher/opni/pkg/plugins/apis/apiextensions/stream"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -57,7 +58,7 @@ var _ cortexops.CortexOpsServer = (*MetricsBackend)(nil)
 var _ remoteread.RemoteReadGatewayServer = (*MetricsBackend)(nil)
 
 type MetricsBackendConfig struct {
-	Logger              *zap.SugaredLogger                                         `validate:"required"`
+	Logger              *slog.Logger                                               `validate:"required"`
 	StorageBackend      storage.Backend                                            `validate:"required"`
 	MgmtClient          managementv1.ManagementClient                              `validate:"required"`
 	NodeManagerClient   capabilityv1.NodeManagerClient                             `validate:"required"`
@@ -96,17 +97,10 @@ func (m *MetricsBackend) requestNodeSync(ctx context.Context, cluster *corev1.Re
 		name = "(all)"
 	}
 	if err != nil {
-		m.Logger.With(
-			"cluster", name,
-			"capability", wellknown.CapabilityMetrics,
-			zap.Error(err),
-		).Warn("failed to request node sync; nodes may not be updated immediately")
+		m.Logger.Warn("failed to request node sync; nodes may not be updated immediately", logger.Err(err), "cluster", name, "capability", wellknown.CapabilityMetrics)
 		return
 	}
-	m.Logger.With(
-		"cluster", name,
-		"capability", wellknown.CapabilityMetrics,
-	).Info("node sync requested")
+	m.Logger.Info("capability", wellknown.CapabilityMetrics, "cluster", name)
 }
 
 // Implements node.NodeMetricsCapabilityServer
@@ -132,9 +126,7 @@ func (m *MetricsBackend) Sync(ctx context.Context, req *node.SyncRequest) (*node
 		// auto-disable if cortex is not installed
 		if err := m.ClusterDriver.ShouldDisableNode(cluster.Reference()); err != nil {
 			reason := status.Convert(err).Message()
-			m.Logger.With(
-				"reason", reason,
-			).Info("disabling metrics capability for node")
+			m.Logger.Info("disabling metrics capability for node", "reason", reason)
 			enabled = false
 			conditions = append(conditions, reason)
 		}
@@ -152,10 +144,7 @@ func (m *MetricsBackend) Sync(ctx context.Context, req *node.SyncRequest) (*node
 	status.Enabled = req.GetCurrentConfig().GetEnabled()
 	status.Conditions = req.GetCurrentConfig().GetConditions()
 	status.LastSync = timestamppb.Now()
-	m.Logger.With(
-		"id", id,
-		"time", status.LastSync.AsTime(),
-	).Debugf("synced node")
+	m.Logger.Debug("time", status.LastSync.AsTime(), "id", id)
 
 	nodeSpec, err := m.getNodeSpecOrDefault(ctx, id)
 	if err != nil {
@@ -193,7 +182,7 @@ func (m *MetricsBackend) getDefaultNodeSpec(ctx context.Context) (*node.MetricsC
 	if status.Code(err) == codes.NotFound {
 		nodeSpec = FallbackDefaultNodeSpec.Load()
 	} else if err != nil {
-		m.Logger.With(zap.Error(err)).Error("failed to get default capability spec")
+		m.Logger.Error("failed to get default capability spec", logger.Err(err))
 		return nil, status.Errorf(codes.Unavailable, "failed to get default capability spec: %v", err)
 	}
 	grpc.SetTrailer(ctx, node.DefaultConfigMetadata())
@@ -205,7 +194,7 @@ func (m *MetricsBackend) getNodeSpecOrDefault(ctx context.Context, id string) (*
 	if status.Code(err) == codes.NotFound {
 		return m.getDefaultNodeSpec(ctx)
 	} else if err != nil {
-		m.Logger.With(zap.Error(err)).Error("failed to get node capability spec")
+		m.Logger.Error("failed to get node capability spec", logger.Err(err))
 		return nil, status.Errorf(codes.Unavailable, "failed to get node capability spec: %v", err)
 	}
 	// handle the case where an older config is now invalid: reset to factory default

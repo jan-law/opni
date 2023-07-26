@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,6 @@ import (
 	"github.com/rancher/opni/pkg/update/patch"
 	"github.com/rancher/opni/pkg/urn"
 	"github.com/spf13/afero"
-	"go.uber.org/zap"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
@@ -29,7 +29,7 @@ import (
 type patchClient struct {
 	PatchClientOptions
 	fs        pluginFs
-	lg        *zap.SugaredLogger
+	lg        *slog.Logger
 	pluginDir string
 }
 
@@ -51,7 +51,7 @@ func WithBaseFS(basefs afero.Fs) PatchClientOption {
 	}
 }
 
-func NewPatchClient(pluginDir string, lg *zap.SugaredLogger, opts ...PatchClientOption) (update.SyncHandler, error) {
+func NewPatchClient(pluginDir string, lg *slog.Logger, opts ...PatchClientOption) (update.SyncHandler, error) {
 	options := PatchClientOptions{
 		baseFs: afero.NewOsFs(),
 	}
@@ -275,10 +275,7 @@ func (pc *patchClient) patch(patches *controlv1.PatchList) error {
 			case controlv1.PatchOp_None:
 				// no-op
 			default:
-				pc.lg.With(
-					"op", entry.GetOp(),
-					"module", entry.GetPackage(),
-				).Warn("server requested an unknown patch operation")
+				pc.lg.Warn("server requested an unknown patch operation", "op", entry.GetOp(), "module", entry.GetPackage())
 				return status.Errorf(codes.Internal, "unknown patch operation %s", entry.GetOp())
 			}
 			return nil
@@ -296,7 +293,7 @@ func (pc *patchClient) doRename(entry *controlv1.PatchSpec) error {
 	if _, err := pc.fs.Stat(newPath); err == nil {
 		return unavailableErrf("could not rename plugin %s: destination %s already exists", entry.Package, entry.Path)
 	}
-	pc.lg.Infof("renaming plugin: %s -> %s", entry.Path, newPath)
+	pc.lg.Info("renaming plugin:", "previous", entry.Path, "current", newPath)
 	err := pc.fs.Rename(entry.Path, newPath)
 	if err != nil {
 		return osErrf("could not rename plugin %s: %v", entry.Path, err)
@@ -305,10 +302,7 @@ func (pc *patchClient) doRename(entry *controlv1.PatchSpec) error {
 }
 
 func (pc *patchClient) doCreate(entry *controlv1.PatchSpec) error {
-	pc.lg.With(
-		"path", entry.Path,
-		"size", len(entry.Data),
-	).Infof("writing new plugin")
+	pc.lg.Info("writing new plugin", "path", entry.Path, "size", len(entry.Data))
 	err := pc.fs.WriteFile(entry.Path, entry.Data, 0755)
 	if err != nil {
 		return osErrf("could not write plugin %s: %v", entry.Path, err)
@@ -322,7 +316,7 @@ func (pc *patchClient) doUpdate(entry *controlv1.PatchSpec) error {
 		"size", len(entry.Data),
 		"from", entry.GetOldDigest(),
 		"to", entry.GetNewDigest(),
-	).Infof("updating plugin")
+	).Info("updating plugin")
 	oldPluginInfo, err := pc.fs.Stat(entry.Path)
 	if err != nil {
 		return osErrf("failed to stat plugin %s: %v", entry.Path, err)
@@ -348,10 +342,7 @@ func (pc *patchClient) doUpdate(entry *controlv1.PatchSpec) error {
 		// read up to 16 bytes of the file for diagnostic purposes
 		header := make([]byte, 16)
 		copy(header, entry.Data)
-		pc.lg.With(
-			"patchSize", len(entry.Data),
-			"header", strings.TrimSpace(hex.Dump(header)),
-		).Error("malformed or incompatible patch was received from the server")
+		pc.lg.Error("malformed or incompatible patch was received from the server", "patchSize", len(entry.Data), "header", strings.TrimSpace(hex.Dump(header)))
 		return internalErrf("unknown patch format for plugin %s", entry.Package)
 	}
 
@@ -401,7 +392,7 @@ func (pc *patchClient) doUpdate(entry *controlv1.PatchSpec) error {
 }
 
 func (pc *patchClient) doRemove(entry *controlv1.PatchSpec) error {
-	pc.lg.Infof("removing plugin: %s", entry.Path)
+	pc.lg.Info("removing plugin:", "plugin", entry.Path)
 	err := pc.fs.Remove(entry.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -437,7 +428,7 @@ func init() {
 		if !ok {
 			return nil, fmt.Errorf("expected string, got %T", args[0])
 		}
-		lg, ok := args[1].(*zap.SugaredLogger)
+		lg, ok := args[1].(*slog.Logger)
 		if !ok {
 			return nil, fmt.Errorf("expected *zap.Logger, got %T", args[1])
 		}

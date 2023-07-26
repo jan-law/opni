@@ -8,6 +8,7 @@ import (
 
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	"github.com/rancher/opni/pkg/config/v1beta1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/plugins/driverutil"
 	"github.com/rancher/opni/pkg/rules"
 	"github.com/rancher/opni/pkg/test"
@@ -254,7 +255,7 @@ func (d *TestEnvPrometheusNodeDriver) ConfigureNode(nodeId string, conf *node.Me
 		// this is the only place where UnsafeStartPrometheus is safe
 		_, err := d.env.UnsafeStartPrometheus(ctx, nodeId)
 		if err != nil {
-			lg.With("err", err).Error("failed to start prometheus")
+			lg.Error("failed to start prometheus", logger.Err(err))
 			ca()
 			return err
 		}
@@ -309,7 +310,7 @@ func (d *TestEnvOtelNodeDriver) ConfigureNode(nodeId string, conf *node.MetricsC
 		ctx = waitctx.FromContext(ctx)
 		err := d.env.StartOTELCollectorContext(ctx, nodeId, node.CompatOTELStruct(conf.GetSpec().GetOtel()))
 		if err != nil {
-			lg.With("err", err).Error("failed to configure otel collector")
+			lg.Error("failed to configure otel collector", logger.Err(err))
 			ca()
 			return fmt.Errorf("failed to configure otel collector: %w", err)
 		}

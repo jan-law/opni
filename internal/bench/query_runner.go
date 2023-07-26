@@ -30,6 +30,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	config_util "github.com/prometheus/common/config"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/thanos-io/thanos/pkg/discovery/dns"
 	"github.com/thanos-io/thanos/pkg/extprom"
 )
@@ -147,7 +148,7 @@ func (q *QueryRunner) QueryWorker(queryChan chan Query) {
 	for queryReq := range queryChan {
 		err := q.ExecuteQuery(context.Background(), queryReq)
 		if err != nil {
-			level.Warn(q.logger).Log("msg", "unable to execute query", "err", err)
+			level.Warn(q.logger).Log("msg", "unable to execute query", logger.Err(err))
 		}
 	}
 }
@@ -245,7 +246,7 @@ func (q *QueryRunner) ExecuteQuery(ctx context.Context, queryReq Query) error {
 func (q *QueryRunner) ResolveAddrsLoop(ctx context.Context) {
 	err := q.ResolveAddrs()
 	if err != nil {
-		level.Warn(q.logger).Log("msg", "failed update remote write servers list", "err", err)
+		level.Warn(q.logger).Log("msg", "failed update remote write servers list", logger.Err(err))
 	}
 	ticker := time.NewTicker(time.Minute * 5)
 	defer ticker.Stop()
@@ -255,7 +256,7 @@ func (q *QueryRunner) ResolveAddrsLoop(ctx context.Context) {
 		case <-ticker.C:
 			err := q.ResolveAddrs()
 			if err != nil {
-				level.Warn(q.logger).Log("msg", "failed update remote write servers list", "err", err)
+				level.Warn(q.logger).Log("msg", "failed update remote write servers list", logger.Err(err))
 			}
 		case <-ctx.Done():
 			return
@@ -270,7 +271,7 @@ func (q *QueryRunner) ResolveAddrs() error {
 
 	// If some of the dns resolution fails, log the error.
 	if err := q.dnsProvider.Resolve(ctx, []string{q.cfg.Endpoint}); err != nil {
-		level.Error(q.logger).Log("msg", "failed to resolve addresses", "err", err)
+		level.Error(q.logger).Log("msg", "failed to resolve addresses", logger.Err(err))
 	}
 
 	// Fail in case no server address is resolved.

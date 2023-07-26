@@ -14,7 +14,7 @@ import (
 	"github.com/ory/fosite/handler/openid"
 	"github.com/ory/fosite/storage"
 	openidauth "github.com/rancher/opni/pkg/auth/openid"
-	"go.uber.org/zap"
+	"github.com/rancher/opni/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -199,9 +199,7 @@ func (s *Server) handleAuthorizeRequest(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	ar, err := s.noauthProvider.NewAuthorizeRequest(ctx, r)
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("authorize request failed")
+		lg.Error("authorize request failed", logger.Err(err))
 		s.noauthProvider.WriteAuthorizeError(ctx, w, ar, err)
 		return
 	}
@@ -237,16 +235,12 @@ func (s *Server) handleAuthorizeRequest(w http.ResponseWriter, r *http.Request) 
 
 	resp, err := s.noauthProvider.NewAuthorizeResponse(ctx, ar, session)
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("authorize response failed")
+		lg.Error("authorize response failed", logger.Err(err))
 		s.noauthProvider.WriteAuthorizeError(ctx, w, ar, err)
 		return
 	}
 
-	lg.With(
-		"code", resp.GetCode(),
-	).Debug("sending code")
+	lg.Debug("sending code", "code", resp.GetCode())
 
 	s.noauthProvider.WriteAuthorizeResponse(ctx, w, ar, resp)
 }
@@ -263,9 +257,7 @@ func (s *Server) handleTokenRequest(w http.ResponseWriter, r *http.Request) {
 	ar, err := s.noauthProvider.NewAccessRequest(ctx, r, session)
 
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("token request failed")
+		lg.Error("token request failed", logger.Err(err))
 		s.noauthProvider.WriteAccessError(ctx, w, ar, err)
 		return
 	}
@@ -283,9 +275,7 @@ func (s *Server) handleTokenRequest(w http.ResponseWriter, r *http.Request) {
 
 	response, err := s.noauthProvider.NewAccessResponse(ctx, ar)
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("token response failed")
+		lg.Error("token response failed", logger.Err(err))
 		s.noauthProvider.WriteAccessError(ctx, w, ar, err)
 		return
 	}
@@ -323,17 +313,12 @@ func (s *Server) handleUserInfoRequest(rw http.ResponseWriter, req *http.Request
 	token = strings.TrimSpace(strings.TrimPrefix(token, "Bearer"))
 	tokenType, ar, err := s.noauthProvider.IntrospectToken(req.Context(), token, fosite.AccessToken, session)
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("user info request failed")
+		lg.Error("user info request failed", logger.Err(err))
 		rw.WriteHeader(http.StatusUnauthorized)
 		rw.Write([]byte("invalid token"))
 		return
 	}
-	lg.With(
-		"token", token,
-		"type", tokenType,
-	).Debug("token received")
+	lg.Debug("token received", "token", token, "type", tokenType)
 
 	if tokenType != fosite.AccessToken {
 		rw.WriteHeader(http.StatusUnauthorized)
@@ -357,9 +342,7 @@ func (s *Server) handleUserInfoRequest(rw http.ResponseWriter, req *http.Request
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	lg.With(
-		"claims", string(jsonData),
-	).Debug("sending user info response")
+	lg.Debug("sending user info response", "claims", string(jsonData))
 	rw.WriteHeader(http.StatusOK)
 	rw.Write(jsonData)
 }

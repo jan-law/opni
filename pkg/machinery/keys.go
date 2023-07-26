@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/ttacon/chalk"
-	"go.uber.org/zap"
 
 	"github.com/rancher/opni/pkg/keyring"
 	"github.com/rancher/opni/pkg/keyring/ephemeral"
@@ -13,7 +12,7 @@ import (
 )
 
 func LoadEphemeralKeys(fsys afero.Afero, dirs ...string) ([]*keyring.EphemeralKey, error) {
-	keyringLog := logger.New().Named("keyring")
+	keyringLog := logger.New().WithGroup("keyring")
 	var keys []*keyring.EphemeralKey
 
 	for _, dir := range dirs {
@@ -42,15 +41,10 @@ func LoadEphemeralKeys(fsys afero.Afero, dirs ...string) ([]*keyring.EphemeralKe
 			ekey, err := ephemeral.LoadKey(f)
 			f.Close()
 			if err != nil {
-				lg.With(
-					zap.Error(err),
-				).Error("failed to load ephemeral key, skipping")
+				lg.Error("failed to load ephemeral key, skipping", logger.Err(err))
 				continue
 			}
-			lg.With(
-				"usage", ekey.Usage,
-				"labels", ekey.Labels,
-			).Debug("loaded ephemeral key")
+			lg.Debug("loaded ephemeral key", "usage", ekey.Usage, "labels", ekey.Labels)
 
 			keys = append(keys, ekey)
 		}

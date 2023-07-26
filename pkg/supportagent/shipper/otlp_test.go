@@ -41,7 +41,7 @@ var _ = Describe("otlp shipper", Ordered, Label("unit"), func() {
 			otlpShipper := shipper.NewOTLPShipper(
 				conn,
 				&mockDateParser{timestamp: timestamp},
-				testlog.Log,
+				testlog.ZapLog,
 				shipper.WithLogType("foo"),
 			)
 			By("publishing logs")
@@ -92,7 +92,7 @@ var _ = Describe("otlp shipper", Ordered, Label("unit"), func() {
 			otlpShipper := shipper.NewOTLPShipper(
 				conn,
 				&mockDateParser{timestamp: timestamp},
-				testlog.Log,
+				testlog.ZapLog,
 				shipper.WithLogType("foo"),
 				shipper.WithComponent("bar"),
 			)
@@ -137,7 +137,7 @@ this is the fifth log line
 			otlpShipper := shipper.NewOTLPShipper(
 				conn,
 				&mockDateParser{timestamp: timestamp},
-				testlog.Log,
+				testlog.ZapLog,
 			)
 			By("publishing logs")
 			err = otlpShipper.Publish(context.Background(), scanner)

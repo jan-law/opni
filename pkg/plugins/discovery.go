@@ -1,11 +1,12 @@
 package plugins
 
 import (
+	"log/slog"
 	"path/filepath"
 
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/plugins/meta"
 	"github.com/spf13/afero"
-	"go.uber.org/zap"
 )
 
 type Filter = func(meta.PluginMeta) bool
@@ -21,7 +22,7 @@ type DiscoveryConfig struct {
 	// will be stored in the plugin's ExtendedMetadata and can be used in filters.
 	QueryModes bool
 	// Optional logger, defaults to no logging
-	Logger *zap.SugaredLogger
+	Logger *slog.Logger
 }
 
 func (dc DiscoveryConfig) Discover() []meta.PluginMeta {
@@ -38,20 +39,14 @@ PLUGINS:
 		f, err := dc.Fs.Open(path)
 		if err != nil {
 			if dc.Logger != nil {
-				dc.Logger.With(
-					zap.Error(err),
-					"plugin", path,
-				).Error("failed to open plugin for reading")
+				dc.Logger.Error("failed to open plugin for reading", "plugin", path, logger.Err(err))
 			}
 			continue
 		}
 		md, err := meta.ReadFile(f)
 		if err != nil {
 			if dc.Logger != nil {
-				dc.Logger.With(
-					zap.Error(err),
-					"plugin", path,
-				).Error("failed to read plugin metadata")
+				dc.Logger.Error("failed to read plugin metadata", "plugin", path, logger.Err(err))
 			}
 			f.Close()
 			continue
@@ -66,10 +61,7 @@ PLUGINS:
 			modes, err := meta.QueryPluginModes(md.BinaryPath)
 			if err != nil {
 				if dc.Logger != nil {
-					dc.Logger.With(
-						zap.Error(err),
-						"plugin", path,
-					).Error("failed to query plugin modes")
+					dc.Logger.Error("failed to query plugin modes", "plugin", path, logger.Err(err))
 				}
 				continue
 			}
@@ -82,10 +74,7 @@ PLUGINS:
 		for i, filter := range dc.Filters {
 			if !filter(md) {
 				if dc.Logger != nil {
-					dc.Logger.With(
-						"plugin", path,
-						"filter", i,
-					).Debug("plugin ignored due to filter")
+					dc.Logger.Debug("plugin ignored due to filter", "plugin", path, "filter", i)
 				}
 				continue PLUGINS
 			}

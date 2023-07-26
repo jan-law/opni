@@ -2,6 +2,7 @@ package otel
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"github.com/rancher/opni/plugins/logging/pkg/util"
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -40,7 +40,7 @@ type OTELForwarder struct {
 type otelForwarderOptions struct {
 	collectorAddressOverride string
 	cc                       grpc.ClientConnInterface
-	lg                       *zap.SugaredLogger
+	lg                       *slog.Logger
 	dialOptions              []grpc.DialOption
 }
 
@@ -64,7 +64,7 @@ func WithClientConn(cc grpc.ClientConnInterface) OTELForwarderOption {
 	}
 }
 
-func WithLogger(lg *zap.SugaredLogger) OTELForwarderOption {
+func WithLogger(lg *slog.Logger) OTELForwarderOption {
 	return func(o *otelForwarderOptions) {
 		o.lg = lg
 	}
@@ -79,7 +79,7 @@ func WithDialOptions(opts ...grpc.DialOption) OTELForwarderOption {
 func NewOTELForwarder(opts ...OTELForwarderOption) *OTELForwarder {
 	options := otelForwarderOptions{
 		collectorAddressOverride: defaultAddress,
-		lg:                       logger.NewPluginLogger().Named("default-otel"),
+		lg:                       logger.NewPluginLogger().WithGroup("default-otel"),
 	}
 	options.apply(opts...)
 	return &OTELForwarder{
@@ -122,7 +122,7 @@ func (f *OTELForwarder) initializeOTELForwarder() collogspb.LogsServiceClient {
 					f.dialOptions...,
 				)
 				if err != nil {
-					f.lg.Errorf("failed dial grpc: %v", err)
+					f.lg.Error("failed dial grpc:", logger.Err(err))
 					continue
 				}
 				return collogspb.NewLogsServiceClient(conn)
@@ -155,7 +155,7 @@ func (f *OTELForwarder) Export(
 	}
 
 	if len(values)%2 != 0 {
-		f.lg.Warnf("invalid number of attribute values: %d", len(values))
+		f.lg.Warn("invalid number of attribute values", "count", len(values))
 		return f.forwardLogs(ctx, request)
 	}
 
@@ -201,7 +201,7 @@ func (f *OTELForwarder) forwardLogs(
 ) (*collogspb.ExportLogsServiceResponse, error) {
 	resp, err := f.Client.Client.Export(ctx, request)
 	if err != nil {
-		f.lg.Error("failed to forward logs: %v", err)
+		f.lg.Error("failed to forward logs: %v", logger.Err(err))
 		return nil, err
 	}
 	return resp, nil

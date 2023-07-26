@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	"github.com/iancoleman/strcase"
 	"github.com/lestrrat-go/backoff/v2"
 	"github.com/nats-io/nats.go"
@@ -13,7 +15,6 @@ import (
 	"github.com/rancher/opni/pkg/config/v1beta1"
 	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
-	"go.uber.org/zap"
 )
 
 const (
@@ -38,7 +39,7 @@ type JetStreamStore struct {
 		Roles        nats.KeyValue
 		RoleBindings nats.KeyValue
 	}
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 }
 
 var _ storage.Backend = (*JetStreamStore)(nil)
@@ -67,7 +68,7 @@ func NewJetStreamStore(ctx context.Context, conf *v1beta1.JetStreamStorageSpec, 
 	}
 	options.apply(opts...)
 
-	lg := logger.New(logger.WithLogLevel(zap.WarnLevel)).Named("jetstream")
+	lg := logger.New(logger.WithLogLevel(slog.LevelWarn)).WithGroup("jetstream")
 
 	nkeyOpt, err := nats.NkeyOptionFromSeed(conf.NkeySeedPath)
 	if err != nil {
@@ -78,9 +79,7 @@ func NewJetStreamStore(ctx context.Context, conf *v1beta1.JetStreamStorageSpec, 
 		nats.MaxReconnects(-1),
 		nats.RetryOnFailedConnect(true),
 		nats.DisconnectErrHandler(func(c *nats.Conn, err error) {
-			lg.With(
-				zap.Error(err),
-			).Warn("disconnected from jetstream")
+			lg.Warn("disconnected from jetstream", logger.Err(err))
 		}),
 		nats.ReconnectHandler(func(c *nats.Conn) {
 			lg.With(
@@ -108,7 +107,7 @@ func NewJetStreamStore(ctx context.Context, conf *v1beta1.JetStreamStorageSpec, 
 	).Start(ctx)
 	for {
 		if rtt, err := nc.RTT(); err == nil {
-			lg.With("rtt", rtt).Info("nats server connection is healthy")
+			lg.Info("nats server connection is healthy", "rtt", rtt)
 			break
 		}
 		select {
@@ -151,10 +150,7 @@ func (s *JetStreamStore) upsertBucket(name string) nats.KeyValue {
 		Replicas: 1,
 	})
 	if err != nil {
-		s.logger.With(
-			"bucket", bucketName,
-			zap.Error(err),
-		).Panic("failed to create bucket")
+		panic("failed to create bucket")
 	}
 	return kv
 }

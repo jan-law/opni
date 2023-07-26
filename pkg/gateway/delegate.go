@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"google.golang.org/protobuf/proto"
@@ -11,8 +12,8 @@ import (
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	streamv1 "github.com/rancher/opni/pkg/apis/stream/v1"
 	"github.com/rancher/opni/pkg/auth/cluster"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
-	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -38,15 +39,15 @@ type DelegateServer struct {
 	streamv1.UnsafeDelegateServer
 	mu           sync.RWMutex
 	activeAgents map[string]agentInfo
-	logger       *zap.SugaredLogger
+	logger       *slog.Logger
 	clusterStore storage.ClusterStore
 }
 
-func NewDelegateServer(clusterStore storage.ClusterStore, lg *zap.SugaredLogger) *DelegateServer {
+func NewDelegateServer(clusterStore storage.ClusterStore, lg *slog.Logger) *DelegateServer {
 	return &DelegateServer{
 		activeAgents: make(map[string]agentInfo),
 		clusterStore: clusterStore,
-		logger:       lg.Named("delegate"),
+		logger:       lg.WithGroup("delegate"),
 	}
 }
 
@@ -56,10 +57,7 @@ func (d *DelegateServer) HandleAgentConnection(ctx context.Context, clientSet ag
 
 	cluster, err := d.clusterStore.GetCluster(ctx, &corev1.Reference{Id: id})
 	if err != nil {
-		d.logger.With(
-			"id", id,
-			zap.Error(err),
-		).Error("internal error: failed to look up connecting agent")
+		d.logger.Error("internal error: failed to look up connecting agent", logger.Err(err), "id", id)
 		return
 	}
 
@@ -68,14 +66,14 @@ func (d *DelegateServer) HandleAgentConnection(ctx context.Context, clientSet ag
 		labels:              cluster.GetLabels(),
 		id:                  id,
 	}
-	d.logger.With("id", id).Debug("agent connected")
+	d.logger.Debug("agent connected", "id", id)
 	d.mu.Unlock()
 
 	<-ctx.Done()
 
 	d.mu.Lock()
 	delete(d.activeAgents, id)
-	d.logger.With("id", id).Debug("agent disconnected")
+	d.logger.Debug("agent disconnected", "id", id)
 	d.mu.Unlock()
 }
 
@@ -94,18 +92,14 @@ func (d *DelegateServer) Request(ctx context.Context, req *streamv1.DelegatedMes
 		fwdResp := &totem.RPC{}
 		err := target.Invoke(ctx, totem.Forward, req.GetRequest(), fwdResp)
 		if err != nil {
-			d.logger.With(
-				zap.Error(err),
-			).Error("delegating rpc request failed")
+			d.logger.Error("delegating rpc request failed", logger.Err(err))
 			return nil, err
 		}
 
 		resp := &totem.RPC{}
 		err = proto.Unmarshal(fwdResp.GetResponse().GetResponse(), resp)
 		if err != nil {
-			d.logger.With(
-				zap.Error(err),
-			).Error("delegating rpc request failed")
+			d.logger.Error("delegating rpc request failed", logger.Err(err))
 			return nil, err
 		}
 
@@ -113,9 +107,7 @@ func (d *DelegateServer) Request(ctx context.Context, req *streamv1.DelegatedMes
 	}
 
 	err := status.Error(codes.NotFound, "target not found")
-	lg.With(
-		zap.Error(err),
-	).Warn("delegating rpc request failed")
+	lg.Warn("delegating rpc request failed", logger.Err(err))
 	return nil, err
 }
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"log/slog"
 
 	healthpkg "github.com/rancher/opni/pkg/health"
 	"github.com/rancher/opni/pkg/logger"
@@ -14,18 +15,17 @@ import (
 	"github.com/rancher/opni/plugins/logging/pkg/agent/drivers"
 	"github.com/rancher/opni/plugins/logging/pkg/otel"
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
-	"go.uber.org/zap"
 )
 
 type Plugin struct {
 	ctx           context.Context
-	logger        *zap.SugaredLogger
+	logger        *slog.Logger
 	node          *LoggingNode
 	otelForwarder *otel.OTELForwarder
 }
 
 func NewPlugin(ctx context.Context) *Plugin {
-	lg := logger.NewPluginLogger().Named("logging")
+	lg := logger.NewPluginLogger().WithGroup("logging")
 
 	ct := healthpkg.NewDefaultConditionTracker(lg)
 
@@ -33,7 +33,7 @@ func NewPlugin(ctx context.Context) *Plugin {
 		ctx:           ctx,
 		logger:        lg,
 		node:          NewLoggingNode(ct, lg),
-		otelForwarder: otel.NewOTELForwarder(otel.WithLogger(lg.Named("otel-forwarder"))),
+		otelForwarder: otel.NewOTELForwarder(otel.WithLogger(lg.WithGroup("otel-forwarder"))),
 	}
 
 	for _, d := range drivers.NodeDrivers.List() {
@@ -42,10 +42,7 @@ func NewPlugin(ctx context.Context) *Plugin {
 			driverutil.NewOption("logger", lg),
 		)
 		if err != nil {
-			lg.With(
-				"driver", d,
-				zap.Error(err),
-			).Error("failed to initialize logging node driver")
+			lg.Error("failed to initialize logging node driver", logger.Err(err), "driver", d)
 			continue
 		}
 

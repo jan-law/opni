@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -20,7 +21,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -39,7 +39,7 @@ var _ remotewrite.RemoteWriteServer = (*RemoteWriteForwarder)(nil)
 type RemoteWriteForwarderConfig struct {
 	CortexClientSet ClientSet                  `validate:"required"`
 	Config          *v1beta1.GatewayConfigSpec `validate:"required"`
-	Logger          *zap.SugaredLogger         `validate:"required"`
+	Logger          *slog.Logger               `validate:"required"`
 }
 
 func (f *RemoteWriteForwarder) Initialize(conf RemoteWriteForwarderConfig) {
@@ -150,10 +150,7 @@ func (f *RemoteWriteForwarder) SyncRules(ctx context.Context, payload *remotewri
 
 	defer func() {
 		if syncErr != nil {
-			f.Logger.With(
-				"err", syncErr,
-				"clusterId", clusterId,
-			).Error("error syncing rules to cortex")
+			f.Logger.Error("error syncing rules to cortex", "err", syncErr, "clusterId", clusterId)
 		}
 	}()
 	url := fmt.Sprintf(

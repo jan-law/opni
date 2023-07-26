@@ -6,29 +6,20 @@ import (
 
 	opnicorev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
-	"go.uber.org/zap"
+	"github.com/rancher/opni/pkg/logger"
 )
 
 func (b *LoggingBackend) updateClusterMetadata(ctx context.Context, event *managementv1.WatchEvent) error {
 	newName, oldName := event.Cluster.Metadata.Labels[opnicorev1.NameLabel], event.Previous.Metadata.Labels[opnicorev1.NameLabel]
 	if newName == oldName {
-		b.Logger.With(
-			"oldName", oldName,
-			"newName", newName,
-		).Debug("cluster was not renamed")
+		b.Logger.Debug("cluster was not renamed", "oldName", oldName, "newName", newName)
 		return nil
 	}
 
-	b.Logger.With(
-		"oldName", oldName,
-		"newName", newName,
-	).Debug("cluster was renamed")
+	b.Logger.Debug("newName", newName, "oldName", oldName)
 
 	if err := b.ClusterDriver.StoreClusterMetadata(ctx, event.Cluster.GetId(), newName); err != nil {
-		b.Logger.With(
-			zap.Error(err),
-			"cluster", event.Cluster.Id,
-		).Debug("could not update cluster metadata")
+		b.Logger.Debug("could not update cluster metadata", logger.Err(err), "cluster", event.Cluster.Id)
 		return nil
 	}
 
@@ -38,22 +29,22 @@ func (b *LoggingBackend) updateClusterMetadata(ctx context.Context, event *manag
 func (b *LoggingBackend) watchClusterEvents(ctx context.Context) {
 	clusterClient, err := b.MgmtClient.WatchClusters(ctx, &managementv1.WatchClustersRequest{})
 	if err != nil {
-		b.Logger.With(zap.Error(err)).Errorf("failed to watch clusters, existing")
+		b.Logger.Error("failed to watch clusters, existing", logger.Err(err))
 		os.Exit(1)
 	}
 
-	b.Logger.Infof("watching cluster events")
+	b.Logger.Info("watching cluster events")
 
 outer:
 	for {
 		select {
 		case <-clusterClient.Context().Done():
-			b.Logger.Infof("context cancelled, stoping cluster event watcher")
+			b.Logger.Info("context cancelled, stoping cluster event watcher")
 			break outer
 		default:
 			event, err := clusterClient.Recv()
 			if err != nil {
-				b.Logger.With(zap.Error(err)).Errorf("failed to receive cluster event")
+				b.Logger.Error("failed to receive cluster event", logger.Err(err))
 				continue
 			}
 
@@ -66,10 +57,7 @@ func (b *LoggingBackend) reconcileClusterMetadata(ctx context.Context, clusters 
 	for _, cluster := range clusters {
 		err := b.ClusterDriver.StoreClusterMetadata(ctx, cluster.GetId(), cluster.Metadata.Labels[opnicorev1.NameLabel])
 		if err != nil {
-			b.Logger.With(
-				zap.Error(err),
-				"cluster", cluster.Id,
-			).Warn("could not update cluster metadata")
+			b.Logger.Warn("could not update cluster metadata", logger.Err(err), "cluster", cluster.Id)
 			retErr = err
 		}
 	}

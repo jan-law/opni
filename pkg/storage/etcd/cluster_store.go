@@ -9,11 +9,11 @@ import (
 
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/lestrrat-go/backoff/v2"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
 )
 
@@ -130,9 +130,7 @@ func (e *EtcdStore) UpdateCluster(
 			Then(clientv3.OpPut(key, string(data))).
 			Commit()
 		if err != nil {
-			e.Logger.With(
-				zap.Error(err),
-			).Error("error updating cluster")
+			e.Logger.Error("error updating cluster", logger.Err(err))
 			return err
 		}
 		if !txnResp.Succeeded {
@@ -178,9 +176,7 @@ func (e *EtcdStore) WatchCluster(
 				return
 			case event := <-wc:
 				if event.Err() != nil {
-					e.Logger.With(
-						zap.Error(event.Err()),
-					).Error("error watching cluster")
+					e.Logger.Error("error watching cluster", "error", event.Err())
 					return
 				}
 				for _, ev := range event.Events {
@@ -201,9 +197,7 @@ func (e *EtcdStore) WatchCluster(
 						current = nil
 					} else {
 						if err := protojson.Unmarshal(ev.Kv.Value, current); err != nil {
-							e.Logger.With(
-								zap.Error(err),
-							).Error("error unmarshaling cluster")
+							e.Logger.Error("error unmarshaling cluster", logger.Err(err))
 							continue
 						}
 						current.SetResourceVersion(fmt.Sprint(ev.Kv.ModRevision))
@@ -211,9 +205,7 @@ func (e *EtcdStore) WatchCluster(
 
 					// if we get here, version is > 1 or 0, therefore PrevKv will always be set
 					if err := protojson.Unmarshal(ev.PrevKv.Value, previous); err != nil {
-						e.Logger.With(
-							zap.Error(err),
-						).Error("error unmarshaling cluster")
+						e.Logger.Error("error unmarshaling cluster", logger.Err(err))
 						continue
 					}
 					previous.SetResourceVersion(fmt.Sprint(ev.PrevKv.ModRevision))
@@ -289,9 +281,7 @@ func (e *EtcdStore) WatchClusters(
 				return
 			case event := <-wc:
 				if event.Err() != nil {
-					e.Logger.With(
-						zap.Error(event.Err()),
-					).Error("error watching clusters")
+					e.Logger.Error("error watching clusters", "error", event.Err())
 					return
 				}
 				for _, ev := range event.Events {
@@ -304,9 +294,7 @@ func (e *EtcdStore) WatchClusters(
 					if ev.IsCreate() {
 						// created
 						if err := protojson.Unmarshal(ev.Kv.Value, current); err != nil {
-							e.Logger.With(
-								zap.Error(err),
-							).Error("error unmarshaling cluster")
+							e.Logger.Error("error unmarshaling cluster", logger.Err(err))
 							continue
 						}
 						current.SetResourceVersion(fmt.Sprint(ev.Kv.CreateRevision))
@@ -315,9 +303,7 @@ func (e *EtcdStore) WatchClusters(
 					} else {
 						if ev.IsModify() {
 							if err := protojson.Unmarshal(ev.Kv.Value, current); err != nil {
-								e.Logger.With(
-									zap.Error(err),
-								).Error("error unmarshaling cluster")
+								e.Logger.Error("error unmarshaling cluster", logger.Err(err))
 								continue
 							}
 							current.SetResourceVersion(fmt.Sprint(ev.Kv.ModRevision))
@@ -328,9 +314,7 @@ func (e *EtcdStore) WatchClusters(
 						}
 						// if we get here, version is > 1 or 0, therefore PrevKv will always be set
 						if err := protojson.Unmarshal(ev.PrevKv.Value, previous); err != nil {
-							e.Logger.With(
-								zap.Error(err),
-							).Error("error unmarshaling cluster")
+							e.Logger.Error("error unmarshaling cluster", logger.Err(err))
 							continue
 						}
 						previous.SetResourceVersion(fmt.Sprint(ev.PrevKv.ModRevision))

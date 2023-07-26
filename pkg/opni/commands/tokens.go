@@ -4,6 +4,7 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
@@ -39,11 +40,13 @@ func BuildTokensCreateCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			duration, err := time.ParseDuration(ttl)
 			if err != nil {
-				lg.Fatal(err)
+				lg.Error("fatal", err)
+				os.Exit(1)
 			}
 			labelMap, err := cliutil.ParseKeyValuePairs(labels)
 			if err != nil {
-				lg.Fatal(err)
+				lg.Error("fatal", err)
+				os.Exit(1)
 			}
 			t, err := mgmtClient.CreateBootstrapToken(cmd.Context(),
 				&managementv1.CreateBootstrapTokenRequest{
@@ -52,7 +55,8 @@ func BuildTokensCreateCmd() *cobra.Command {
 					MaxUsages: int64(maxUsages),
 				})
 			if err != nil {
-				lg.Fatal(err)
+				lg.Error("fatal", err)
+				os.Exit(1)
 			}
 			fmt.Println(cliutil.RenderBootstrapToken(t))
 		},
@@ -72,7 +76,8 @@ func BuildTokensCreateSupportCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			duration, err := time.ParseDuration(ttl)
 			if err != nil {
-				lg.Fatal(err)
+				lg.Error("fatal", err)
+				os.Exit(1)
 			}
 
 			labels := map[string]string{
@@ -86,7 +91,8 @@ func BuildTokensCreateSupportCmd() *cobra.Command {
 					MaxUsages: 1,
 				})
 			if err != nil {
-				lg.Fatal(err)
+				lg.Error("fatal", err)
+				os.Exit(1)
 			}
 			fmt.Println(cliutil.RenderBootstrapToken(t))
 		},
@@ -111,9 +117,10 @@ func BuildTokensRevokeCmd() *cobra.Command {
 						Id: token,
 					})
 				if err != nil {
-					lg.Fatal(err)
+					lg.Error("fatal", err)
+					os.Exit(1)
 				}
-				lg.Infof("Revoked token %s", token)
+				lg.Info("Revoked token", "token", token)
 			}
 		},
 	}
@@ -126,7 +133,8 @@ func BuildTokensListCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			t, err := mgmtClient.ListBootstrapTokens(cmd.Context(), &emptypb.Empty{})
 			if err != nil {
-				lg.Fatal(err)
+				lg.Error("fatal", err)
+				os.Exit(1)
 			}
 			fmt.Println(cliutil.RenderBootstrapTokenList(t))
 		},
@@ -148,7 +156,8 @@ func BuildTokensGetCmd() *cobra.Command {
 					Id: id,
 				})
 				if err != nil {
-					lg.Fatal(err)
+					lg.Error("fatal", err)
+					os.Exit(1)
 				}
 				tokenList = append(tokenList, t)
 			}

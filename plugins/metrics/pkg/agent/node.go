@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rancher/opni/pkg/clients"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/plugins/metrics/apis/node"
 	"github.com/rancher/opni/plugins/metrics/apis/remoteread"
 	"github.com/rancher/opni/plugins/metrics/apis/remotewrite"
@@ -24,7 +26,6 @@ import (
 	"github.com/rancher/opni/pkg/health"
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/plugins/metrics/pkg/agent/drivers"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -38,7 +39,7 @@ type MetricsNode struct {
 	// we only need a subset of the methods
 	remoteread.UnsafeRemoteReadAgentServer
 
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 
 	nodeClientMu sync.RWMutex
 	nodeClient   node.NodeMetricsCapabilityClient
@@ -62,7 +63,7 @@ type MetricsNode struct {
 	nodeDrivers  []drivers.MetricsNodeDriver
 }
 
-func NewMetricsNode(ct health.ConditionTracker, lg *zap.SugaredLogger) *MetricsNode {
+func NewMetricsNode(ct health.ConditionTracker, lg *slog.Logger) *MetricsNode {
 	mn := &MetricsNode{
 		logger:       lg,
 		conditions:   ct,
@@ -91,15 +92,11 @@ func (m *MetricsNode) sendHealthUpdate() {
 	if m.healthListenerClient != nil {
 		health, err := m.GetHealth(context.TODO(), &emptypb.Empty{})
 		if err != nil {
-			m.logger.With(
-				zap.Error(err),
-			).Warn("failed to get node health")
+			m.logger.Warn("failed to get node health", logger.Err(err))
 			return
 		}
 		if _, err := m.healthListenerClient.UpdateHealth(context.TODO(), health); err != nil {
-			m.logger.With(
-				zap.Error(err),
-			).Warn("failed to send node health update")
+			m.logger.Warn("failed to send node health update", logger.Err(err))
 		} else {
 			m.logger.Debug("sent node health update")
 		}
@@ -236,7 +233,7 @@ func (m *MetricsNode) Discover(ctx context.Context, request *remoteread.Discover
 	defer m.nodeDriverMu.RUnlock()
 
 	if len(m.nodeDrivers) == 0 {
-		m.logger.Warnf("no node driver available for discvoery")
+		m.logger.Warn("no node driver available for discovery")
 
 		return &remoteread.DiscoveryResponse{
 			Entries: []*remoteread.DiscoveryEntry{},
@@ -307,7 +304,7 @@ func (m *MetricsNode) doSync(ctx context.Context) {
 func (m *MetricsNode) updateConfig(ctx context.Context, config *node.MetricsCapabilityConfig) error {
 	id, err := m.identityClient.Whoami(ctx, &emptypb.Empty{})
 	if err != nil {
-		m.logger.With(zap.Error(err)).Errorf("error fetching node id", err)
+		m.logger.Error("error fetching node id", logger.Err(err))
 		return err
 	}
 
@@ -341,7 +338,7 @@ func (m *MetricsNode) updateConfig(ctx context.Context, config *node.MetricsCapa
 
 	if err := eg.Error(); err != nil {
 		m.config.Conditions = append(config.Conditions, err.Error())
-		m.logger.With(zap.Error(err)).Error("node configuration error")
+		m.logger.Error("node configuration error", logger.Err(err))
 		return err
 	}
 	return nil

@@ -11,21 +11,22 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/nats-io/nats.go"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/slo/shared"
 	"github.com/rancher/opni/pkg/topology/store"
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/plugins/topology/apis/stream"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type TopologyStreamWriteConfig struct {
-	Logger *zap.SugaredLogger
+	Logger *slog.Logger
 	Nc     *nats.Conn
 }
 
@@ -44,7 +45,7 @@ func (t *TopologyStreamWriter) Initialize(conf TopologyStreamWriteConfig) {
 	t.InitOnce(func() {
 		objStore, err := store.NewTopologyObjectStore(conf.Nc)
 		if err != nil {
-			conf.Logger.With("error", err).Error("failed to initialize topology object store")
+			conf.Logger.Error("failed to initialize topology object store", logger.Err(err))
 			os.Exit(1)
 		}
 		t.topologyObjectStore = objStore
@@ -77,7 +78,7 @@ func (t *TopologyStreamWriter) Push(_ context.Context, payload *stream.Payload) 
 	if err != nil {
 		return nil, err
 	}
-	t.Logger.With("info", info).Debug("successfully pushed topology data")
+	t.Logger.Debug("successfully pushed topology data", "info", info)
 	return &emptypb.Empty{}, nil
 }
 

@@ -4,28 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/rancher/opni/pkg/config/v1beta1"
 	"github.com/rancher/opni/pkg/health"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/rules"
 	"github.com/rancher/opni/pkg/util/notifier"
 	"github.com/rancher/opni/plugins/metrics/apis/node"
 	"github.com/rancher/opni/plugins/metrics/apis/remotewrite"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"gopkg.in/yaml.v3"
 )
 
 type RuleStreamer struct {
-	logger              *zap.SugaredLogger
+	logger              *slog.Logger
 	remoteWriteClientMu sync.Mutex
 	remoteWriteClient   remotewrite.RemoteWriteClient
 	conditions          health.ConditionTracker
 }
 
-func NewRuleStreamer(ct health.ConditionTracker, lg *zap.SugaredLogger) *RuleStreamer {
+func NewRuleStreamer(ct health.ConditionTracker, lg *slog.Logger) *RuleStreamer {
 	return &RuleStreamer{
 		logger:     lg,
 		conditions: ct,
@@ -56,9 +57,7 @@ func (s *RuleStreamer) Run(ctx context.Context, config *v1beta1.RulesSpec, finde
 			var docs [][]byte
 			select {
 			case <-ctx.Done():
-				lg.With(
-					zap.Error(ctx.Err()),
-				).Debug("rule discovery stream closing")
+				lg.Debug("rule discovery stream closing", ctx.Err())
 				return
 			case docs = <-pending:
 			}
@@ -84,9 +83,7 @@ func (s *RuleStreamer) Run(ctx context.Context, config *v1beta1.RulesSpec, finde
 					if err != nil {
 						s.conditions.Set(node.CondRuleSync, health.StatusFailure, err.Error())
 						// retry, unless another update is received from the channel
-						lg.With(
-							zap.Error(err),
-						).Error("failed to send alert rules to gateway (retry in 5 seconds)")
+						lg.Error("failed to send alert rules to gateway (retry in 5 seconds)", logger.Err(err))
 						select {
 						case docs = <-pending:
 							lg.Debug("updated rules were received during backoff, retrying immediately")
@@ -106,9 +103,7 @@ func (s *RuleStreamer) Run(ctx context.Context, config *v1beta1.RulesSpec, finde
 	for {
 		select {
 		case <-ctx.Done():
-			lg.With(
-				zap.Error(ctx.Err()),
-			).Warn("rule discovery stream closing")
+			lg.Warn("rule discovery stream closing", "error", ctx.Err())
 			return nil
 		case yamlDocs, ok := <-updateC:
 			if !ok {
@@ -137,9 +132,7 @@ func (s *RuleStreamer) streamRuleGroupUpdates(
 		searchInterval = duration
 	}
 	notifier := notifier.NewPeriodicUpdateNotifier(ctx, finder, searchInterval)
-	s.logger.With(
-		zap.String("interval", searchInterval.String()),
-	).Debug("rule discovery notifier configured")
+	s.logger.Debug("rule discovery notifier configured", "interval", searchInterval.String())
 
 	notifierC := notifier.NotifyC(ctx)
 	s.logger.Debug("starting rule group update notifier")
@@ -166,10 +159,7 @@ func (s *RuleStreamer) marshalRuleGroups(ruleGroups []rules.RuleGroup) [][]byte 
 	for _, ruleGroup := range ruleGroups {
 		doc, err := yaml.Marshal(ruleGroup)
 		if err != nil {
-			s.logger.With(
-				zap.Error(err),
-				zap.String("group", ruleGroup.Name),
-			).Error("failed to marshal rule group")
+			s.logger.Error("failed to marshal rule group", logger.Err(err), "group", ruleGroup.Name)
 			continue
 		}
 		yamlDocs = append(yamlDocs, doc)

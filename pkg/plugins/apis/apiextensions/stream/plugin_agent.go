@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"runtime"
 	"slices"
 	"strings"
@@ -23,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	"go.uber.org/atomic"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -51,7 +51,7 @@ func NewAgentPlugin(p StreamAPIExtension) plugin.Plugin {
 
 	ext := &agentStreamExtensionServerImpl{
 		name:          name,
-		logger:        logger.NewPluginLogger().Named(name).Named("stream"),
+		logger:        logger.NewPluginLogger().WithGroup(name).WithGroup("stream"),
 		activeStreams: make(map[string]chan struct{}),
 	}
 	if p != nil {
@@ -82,7 +82,7 @@ type agentStreamExtensionServerImpl struct {
 	name          string
 	servers       []*richServer
 	clientHandler StreamClientHandler
-	logger        *zap.SugaredLogger
+	logger        *slog.Logger
 
 	activeStreamsMu sync.Mutex
 	activeStreams   map[string]chan struct{}
@@ -116,9 +116,7 @@ func (e *agentStreamExtensionServerImpl) Connect(stream streamv1.Stream_ConnectS
 	ts, err := totem.NewServer(stream, opts...)
 
 	if err != nil {
-		e.logger.With(
-			zap.Error(err),
-		).Error("failed to create stream server")
+		e.logger.Error("failed to create stream server", logger.Err(err))
 		return err
 	}
 	for _, srv := range e.servers {
@@ -144,7 +142,7 @@ func (e *agentStreamExtensionServerImpl) Connect(stream streamv1.Stream_ConnectS
 		// and reconnect.
 		return status.Errorf(codes.DeadlineExceeded, "stream client discovery timed out after %s", timeout)
 	case <-stream.Context().Done():
-		e.logger.With(stream.Context().Err()).Error("stream disconnected while waiting for discovery")
+		e.logger.Error("stream disconnected while waiting for discovery", "error", stream.Context().Err())
 		return stream.Context().Err()
 	}
 
@@ -156,7 +154,7 @@ func (e *agentStreamExtensionServerImpl) Connect(stream streamv1.Stream_ConnectS
 		}
 	case err := <-errC:
 		if err != nil {
-			e.logger.With(stream.Context().Err()).Error("stream encountered an error while waiting for discovery")
+			e.logger.Error("stream encountered an error while waiting for discovery", "error", stream.Context().Err())
 			return status.Errorf(codes.Internal, "stream encountered an error while waiting for discovery: %v", err)
 		}
 	}
@@ -167,17 +165,13 @@ func (e *agentStreamExtensionServerImpl) Connect(stream streamv1.Stream_ConnectS
 	if errors.Is(err, io.EOF) {
 		e.logger.Debug("stream disconnected")
 	} else {
-		e.logger.With(
-			zap.Error(err),
-		).Warn("stream disconnected with error")
+		e.logger.Warn("stream disconnected with error", logger.Err(err))
 	}
 	return err
 }
 
 func (e *agentStreamExtensionServerImpl) Notify(_ context.Context, event *streamv1.StreamEvent) (*emptypb.Empty, error) {
-	e.logger.With(
-		"type", event.Type.String(),
-	).Debugf("received notify event for '%s'", e.name)
+	e.logger.Debug("received notify event for:", "name", e.name, "type", event.Type.String())
 	e.activeStreamsMu.Lock()
 	defer e.activeStreamsMu.Unlock()
 

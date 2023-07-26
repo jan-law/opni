@@ -9,9 +9,9 @@ import (
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	streamv1 "github.com/rancher/opni/pkg/apis/stream/v1"
 	"github.com/rancher/opni/pkg/capabilities/wellknown"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/plugins/metrics/apis/remoteread"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -57,7 +57,7 @@ func (m *MetricsBackend) AddTarget(_ context.Context, request *remoteread.Target
 		"cluster", request.Target.Meta.ClusterId,
 		"target", request.Target.Meta.Name,
 		"capability", wellknown.CapabilityMetrics,
-	).Infof("added new target")
+	).Info("added new target")
 
 	return &emptypb.Empty{}, nil
 }
@@ -108,7 +108,7 @@ func (m *MetricsBackend) EditTarget(ctx context.Context, request *remoteread.Tar
 		"cluster", request.Meta.ClusterId,
 		"target", request.Meta.Name,
 		"capability", wellknown.CapabilityMetrics,
-	).Infof("edited target")
+	).Info("edited target")
 
 	return &emptypb.Empty{}, nil
 }
@@ -143,7 +143,7 @@ func (m *MetricsBackend) RemoveTarget(ctx context.Context, request *remoteread.T
 		"cluster", request.Meta.ClusterId,
 		"target", request.Meta.Name,
 		"capability", wellknown.CapabilityMetrics,
-	).Infof("removed target")
+	).Info("removed target")
 
 	return &emptypb.Empty{}, nil
 }
@@ -164,7 +164,7 @@ func (m *MetricsBackend) ListTargets(ctx context.Context, request *remoteread.Ta
 			eg.Go(func() error {
 				newStatus, err := m.GetTargetStatus(ctx, &remoteread.TargetStatusRequest{Meta: target.Meta})
 				if err != nil {
-					m.Logger.Infof("could not get newStatus for target '%s/%s': %s", target.Meta.ClusterId, target.Meta.Name, err)
+					m.Logger.Info("could not get newStatus for target", "ID", target.Meta.ClusterId, "name", target.Meta.Name, logger.Err(err))
 					newStatus.State = remoteread.TargetState_Unknown
 				}
 
@@ -180,7 +180,7 @@ func (m *MetricsBackend) ListTargets(ctx context.Context, request *remoteread.Ta
 	}
 
 	if err := eg.Wait(); err != nil {
-		m.Logger.Errorf("error waiting for status to update: %s", err)
+		m.Logger.Error("error waiting for status to update: ", logger.Err(err))
 	}
 
 	list := &remoteread.TargetList{Targets: inner}
@@ -212,8 +212,7 @@ func (m *MetricsBackend) GetTargetStatus(ctx context.Context, request *remoterea
 			"cluster", request.Meta.ClusterId,
 			"capability", wellknown.CapabilityMetrics,
 			"target", request.Meta.Name,
-			zap.Error(err),
-		).Error("failed to get target status")
+		).Error("failed to get target status", logger.Err(err))
 
 		return nil, err
 	}
@@ -249,8 +248,7 @@ func (m *MetricsBackend) Start(ctx context.Context, request *remoteread.StartRea
 			"cluster", request.Target.Meta.ClusterId,
 			"capability", wellknown.CapabilityMetrics,
 			"target", request.Target.Meta.Name,
-			zap.Error(err),
-		).Error("failed to start target")
+		).Error("failed to start target", logger.Err(err))
 
 		return nil, err
 	}
@@ -278,8 +276,7 @@ func (m *MetricsBackend) Stop(ctx context.Context, request *remoteread.StopReadR
 			"cluster", request.Meta.ClusterId,
 			"capability", wellknown.CapabilityMetrics,
 			"target", request.Meta.Name,
-			zap.Error(err),
-		).Error("failed to stop target")
+		).Error("failed to stop target", logger.Err(err))
 
 		return nil, err
 	}
@@ -305,7 +302,7 @@ func (m *MetricsBackend) Discover(ctx context.Context, request *remoteread.Disco
 			discoverResponse := &remoteread.DiscoveryResponse{}
 
 			if err := proto.Unmarshal(response.Reply.GetResponse().Response, discoverResponse); err != nil {
-				m.Logger.Errorf("failed to unmarshal for aggregated DiscoveryResponse: %s", err)
+				m.Logger.Error("failed to unmarshal for aggregated DiscoveryResponse: ", logger.Err(err))
 			}
 
 			// inject the cluster id gateway-side
@@ -321,10 +318,7 @@ func (m *MetricsBackend) Discover(ctx context.Context, request *remoteread.Disco
 	}).Discover(ctx, request)
 
 	if err != nil {
-		m.Logger.With(
-			"capability", wellknown.CapabilityMetrics,
-			zap.Error(err),
-		).Error("failed to run import discovery")
+		m.Logger.Error("failed to run import discovery", logger.Err(err), "capability", wellknown.CapabilityMetrics)
 
 		return nil, err
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/rancher/opni/pkg/clients"
 	"github.com/rancher/opni/pkg/config/v1beta1"
 	"github.com/rancher/opni/pkg/keyring"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/machinery"
 	cliutil "github.com/rancher/opni/pkg/opni/util"
 	"github.com/rancher/opni/pkg/storage"
@@ -121,7 +122,7 @@ func BuildDebugEtcdctlCmd() *cobra.Command {
 				if err == nil {
 					mgmtClient = c
 				} else {
-					lg.Warnf("failed to create management client: %v", err)
+					lg.Warn("failed to create management client:", logger.Err(err))
 				}
 			}
 			conf, err := mgmtClient.GetConfig(cmd.Context(), &emptypb.Empty{})

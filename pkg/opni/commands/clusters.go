@@ -4,15 +4,16 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 
 	tea "github.com/charmbracelet/bubbletea"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/opni/ui"
 	cliutil "github.com/rancher/opni/pkg/opni/util"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -47,7 +48,8 @@ func BuildClustersListCmd() *cobra.Command {
 				}
 				go func() {
 					if err := w.Run(cmd.Context()); err != nil {
-						lg.Fatal(err)
+						lg.Error("fatal", err)
+						os.Exit(1)
 					}
 				}()
 				p := tea.NewProgram(m)
@@ -110,11 +112,10 @@ func BuildClustersDeleteCmd() *cobra.Command {
 					Id: cluster,
 				})
 				if err != nil {
-					lg.Fatal(err)
+					lg.Error("fatal", err)
+					os.Exit(1)
 				}
-				lg.With(
-					"id", cluster,
-				).Info("Deleted cluster")
+				lg.Info("Deleted cluster", "id", cluster)
 			}
 			return nil
 		},
@@ -140,11 +141,13 @@ func BuildClustersLabelCmd() *cobra.Command {
 				Id: clusterID,
 			})
 			if err != nil {
-				lg.Fatal(err)
+				lg.Error("fatal", err)
+				os.Exit(1)
 			}
 			labels, err := cliutil.ParseKeyValuePairs(args[1:])
 			if err != nil {
-				lg.Fatal(err)
+				lg.Error("fatal", err)
+				os.Exit(1)
 			}
 			currentLabels := map[string]string{}
 			for k, v := range cluster.GetLabels() {
@@ -161,10 +164,8 @@ func BuildClustersLabelCmd() *cobra.Command {
 					if _, ok := currentLabels[k]; !ok {
 						currentLabels[k] = v
 					} else {
-						lg.With(
-							"key", k,
-							"curValue", v,
-						).Fatal("Label already exists (use --overwrite to enable replacing existing values)")
+						lg.Error("Label already exists (use --overwrite to enable replacing existing values)", "key", k, "curValue", v)
+						os.Exit(1)
 					}
 				}
 			}
@@ -173,17 +174,14 @@ func BuildClustersLabelCmd() *cobra.Command {
 				Labels:  currentLabels,
 			})
 			if err != nil {
-				lg.With(
-					zap.Error(err),
-				).Fatal("Failed to edit cluster")
+				lg.Error("Failed to edit cluster", logger.Err(err))
+				os.Exit(1)
 			}
 			if reflect.DeepEqual(cluster.GetLabels(), updatedCluster.GetLabels()) {
 				lg.Error("Updating cluster labels failed (unknown error)")
 				return
 			}
-			lg.With(
-				"id", clusterID,
-			).Info("Cluster labels updated")
+			lg.Info("Cluster labels updated", "id", clusterID)
 		},
 	}
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Enable overwriting existing label values")

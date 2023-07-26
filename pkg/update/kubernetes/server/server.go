@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -14,7 +15,6 @@ import (
 	"github.com/rancher/opni/pkg/update/kubernetes"
 	"github.com/rancher/opni/pkg/urn"
 	opniurn "github.com/rancher/opni/pkg/urn"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -22,7 +22,7 @@ import (
 
 type kubernetesSyncServer struct {
 	imageFetcher oci.Fetcher
-	lg           *zap.SugaredLogger
+	lg           *slog.Logger
 }
 
 type kubernetesOptions struct {
@@ -45,7 +45,7 @@ func WithNamespace(namespace string) KubernetesOption {
 
 func NewKubernetesSyncServer(
 	conf v1beta1.KubernetesAgentUpgradeSpec,
-	lg *zap.SugaredLogger,
+	lg *slog.Logger,
 	opts ...KubernetesOption,
 ) (update.UpdateTypeHandler, error) {
 	options := kubernetesOptions{
@@ -173,7 +173,7 @@ func (k *kubernetesSyncServer) imageForEntry(
 
 	imageType, ok := kubernetes.ComponentImageMap[component]
 	if !ok {
-		k.lg.Warnf("no image found for component %s", component)
+		k.lg.Warn("no image found for component", "component", component)
 		return nil, nil
 	}
 

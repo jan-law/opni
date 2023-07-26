@@ -8,11 +8,11 @@ import (
 	"sync"
 
 	controlv1 "github.com/rancher/opni/pkg/apis/control/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/plugins"
 	"github.com/rancher/opni/pkg/urn"
 	"github.com/samber/lo"
 	"github.com/spf13/afero"
-	"go.uber.org/zap"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -93,9 +93,9 @@ func GetFilesystemPlugins(dc plugins.DiscoveryConfig) (*controlv1.PluginArchive,
 	}
 	lg := dc.Logger
 	if lg == nil {
-		lg = zap.NewNop().Sugar()
+		lg = logger.NewNop()
 	}
-	lg.Debugf("found %d plugins", len(matches))
+	lg.Debug("found plugins", "count", len(matches))
 	var wg sync.WaitGroup
 	for i, md := range matches {
 		i, md := i, md
@@ -105,9 +105,7 @@ func GetFilesystemPlugins(dc plugins.DiscoveryConfig) (*controlv1.PluginArchive,
 			lg := lg.With("path", md.BinaryPath)
 			f, err := dc.Fs.Open(md.BinaryPath)
 			if err != nil {
-				lg.With(
-					zap.Error(err),
-				).Error("failed to read plugin, skipping")
+				lg.Error("failed to read plugin, skipping", logger.Err(err))
 				return
 			}
 			defer f.Close()
@@ -119,9 +117,7 @@ func GetFilesystemPlugins(dc plugins.DiscoveryConfig) (*controlv1.PluginArchive,
 			contents := bytes.NewBuffer(make([]byte, 0, fileSize))
 
 			if _, err := io.Copy(io.MultiWriter(hash, contents), f); err != nil {
-				lg.With(
-					zap.Error(err),
-				).Error("failed to read plugin, skipping")
+				lg.Error("failed to read plugin, skipping", logger.Err(err))
 				return
 			}
 			sum := hex.EncodeToString(hash.Sum(nil))
@@ -145,13 +141,11 @@ func GetFilesystemPlugins(dc plugins.DiscoveryConfig) (*controlv1.PluginArchive,
 		}
 	}
 	if numFailed > 0 {
-		lg.Warnf("%d plugins failed to load", numFailed)
+		lg.Warn("plugins failed to load", "numFailed", numFailed)
 	}
 
 	res.Items = lo.WithoutEmpty(res.Items)
 	res.Sort()
-	lg.With(
-		PluginsDir, len(res.Items),
-	).Debug("loaded plugin manifest")
+	lg.Debug("loaded plugin manifest", PluginsDir, len(res.Items))
 	return res, nil
 }

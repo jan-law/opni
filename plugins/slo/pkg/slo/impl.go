@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/plugins/metrics/apis/cortexadmin"
 	sloapi "github.com/rancher/opni/plugins/slo/apis/slo"
@@ -55,9 +56,10 @@ func (s SLOMonitoring) Update(existing *sloapi.SLOData) (*sloapi.SLOData, error)
 	if err == nil && existing.SLO.ClusterId != incomingSLO.SLO.ClusterId {
 		_, err := s.p.DeleteSLO(s.ctx, &corev1.Reference{Id: existing.Id})
 		if err != nil {
-			s.lg.With("sloId", existing.Id).Error(fmt.Sprintf(
-				"Unable to delete SLO when updating between clusters :  %v",
-				err))
+			s.lg.Error(
+				"Unable to delete SLO when updating between clusters",
+				err,
+				"sloId", existing.Id)
 		}
 	}
 	return incomingSLO, err
@@ -100,7 +102,7 @@ func (s SLOMonitoring) Delete(existing *sloapi.SLOData) error {
 	}
 	err := createGrafanaSLOMask(s.ctx, s.p, clusterId, id)
 	if err != nil {
-		s.p.logger.Errorf("creating grafana mask failed %s", err)
+		s.p.logger.Error("creating grafana mask failed ", logger.Err(err))
 		errArr = append(errArr, err)
 	}
 	return errors.Combine(errArr...)
@@ -214,8 +216,9 @@ func (s SLOMonitoring) Status(existing *sloapi.SLOData) (*sloapi.SLOStatus, erro
 	now := time.Now()
 
 	if now.Sub(existing.CreatedAt.AsTime()) <= sloapi.MinEvaluateInterval*2 {
-		s.lg.With("sloId", existing.Id).Debug("SLO status is not ready to be evaluated : ",
-			(&sloapi.SLOStatus{State: sloapi.SLOStatusState_Creating}).String())
+		s.lg.Debug("SLO status is not ready to be evaluated : ",
+			"status", (&sloapi.SLOStatus{State: sloapi.SLOStatusState_Creating}).String(),
+			"sloId", existing.Id)
 
 		return &sloapi.SLOStatus{State: sloapi.SLOStatusState_Creating}, nil
 	}
@@ -235,7 +238,7 @@ func (s SLOMonitoring) Status(existing *sloapi.SLOData) (*sloapi.SLOStatus, erro
 	if sliDataVector == nil || sliDataVector.Len() == 0 {
 		return &sloapi.SLOStatus{State: sloapi.SLOStatusState_NoData}, nil
 	}
-	s.lg.With("sloId", slo.GetId()).Debug("sli status response vector : ", sliDataVector.String())
+	s.lg.Debug("sli status response vector : ", "response", sliDataVector.String(), "sloId", slo.GetId())
 	// ======================= error budget =======================
 	// race condition can cause initial evaluation to fail with empty vector, resulting in no data state
 	// this is why we return creating state with two intervals
@@ -251,7 +254,7 @@ func (s SLOMonitoring) Status(existing *sloapi.SLOData) (*sloapi.SLOStatus, erro
 	if metadataBudget <= 0 {
 		return &sloapi.SLOStatus{State: sloapi.SLOStatusState_Breaching}, nil
 	}
-	s.lg.With("sloId", slo.GetId()).Debug("sli status ", metadataVector.String())
+	s.lg.Debug("sli status ", "status", metadataVector.String(), "sloId", slo.GetId())
 	//
 	//// ======================= alert =======================
 
@@ -271,7 +274,7 @@ func (s SLOMonitoring) Status(existing *sloapi.SLOData) (*sloapi.SLOStatus, erro
 	if (*alertDataVector1)[len(*alertDataVector1)-1].Value > 0 || (*alertDataVector2)[len(*alertDataVector2)-1].Value > 0 {
 		return &sloapi.SLOStatus{State: sloapi.SLOStatusState_Warning}, nil
 	}
-	s.lg.With("sloId", slo.GetId()).Debug("alert status response vector ", alertDataVector1.String(), alertDataVector2.String())
+	s.lg.Debug("alert status response vector ", alertDataVector1.String(), alertDataVector2.String(), "sloId", slo.GetId())
 	return &sloapi.SLOStatus{
 		State: state,
 	}, nil
@@ -376,7 +379,7 @@ func (m MonitoringServiceBackend) ListServices() (*sloapi.ServiceList, error) {
 	}
 	result := gjson.Get(string(resp.Data), "data.result.#.metric.job")
 	if !result.Exists() {
-		return nil, fmt.Errorf("Could not convert prometheus service discovery to json ")
+		return nil, fmt.Errorf("could not convert prometheus service discovery to json ")
 	}
 	for _, v := range result.Array() {
 		res.Items = append(res.Items, &sloapi.Service{

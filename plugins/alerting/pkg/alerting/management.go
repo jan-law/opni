@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/management"
 	"github.com/rancher/opni/pkg/plugins/driverutil"
 	"github.com/rancher/opni/plugins/metrics/apis/cortexadmin"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/rancher/opni/plugins/alerting/pkg/alerting/alarms/v1"
 	"github.com/rancher/opni/plugins/alerting/pkg/alerting/drivers"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -28,13 +28,10 @@ func (p *Plugin) configureDriver(ctx context.Context, opts ...driverutil.Option)
 	priorityOrder := []string{"alerting-manager", "gateway-manager", "local-alerting", "test-environment", "noop"}
 	for _, name := range priorityOrder {
 		if builder, ok := drivers.Drivers.Get(name); ok {
-			p.logger.With(zap.String("driver", name)).Info("using cluster driver")
+			p.logger.Info("using cluster driver", "driver", name)
 			driver, err := builder(ctx, opts...)
 			if err != nil {
-				p.logger.With(
-					"driver", name,
-					zap.Error(err),
-				).Error("failed to initialize cluster driver")
+				p.logger.Error("failed to initialize cluster driver", logger.Err(err), "driver", name)
 				return
 			}
 			p.clusterDriver.Set(driver)
@@ -77,7 +74,7 @@ func (p *Plugin) watchCortexClusterStatus() {
 				if e, ok := status.FromError(err); ok {
 					switch e.Code() {
 					case codes.Unavailable:
-						lg.Debugf("Cortex cluster status unavailable : not yet installed")
+						lg.Debug("Cortex cluster status unavailable : not yet installed")
 						continue
 					case codes.Internal:
 						if ccStatus == nil {
@@ -87,7 +84,7 @@ func (p *Plugin) watchCortexClusterStatus() {
 						// mark all sub-statues as nil so they are always evaluated as unhealthy
 					case codes.Unknown: // this might be a blip, but mark this as unhealthy for everything
 						ccStatus = &cortexadmin.CortexStatus{}
-						lg.Warnf("Cortex cluster status unknown : %v", err)
+						lg.Warn("Cortex cluster status unknown", logger.Err(err))
 						continue
 					}
 				}
@@ -95,11 +92,11 @@ func (p *Plugin) watchCortexClusterStatus() {
 			go func() {
 				cortexStatusData, err := json.Marshal(ccStatus)
 				if err != nil {
-					p.logger.Errorf("failed to marshal cortex cluster status: %s", err)
+					p.logger.Error("failed to marshal cortex cluster status: ", logger.Err(err))
 				}
 				_, err = p.js.Get().PublishAsync(alarms.NewCortexStatusSubject(), cortexStatusData)
 				if err != nil {
-					p.logger.Errorf("failed to publish cortex cluster status : %s", err)
+					p.logger.Error("failed to publish cortex cluster status : ", logger.Err(err))
 				}
 			}()
 		}
@@ -123,7 +120,7 @@ func (p *Plugin) watchGlobalCluster(
 		default:
 			event, err := clusterClient.Recv()
 			if err != nil {
-				p.logger.Errorf("failed to receive cluster event : %s", err)
+				p.logger.Error("failed to receive cluster event", logger.Err(err))
 				continue
 			}
 			watcher.HandleEvent(event)
@@ -144,7 +141,7 @@ func (p *Plugin) publishInitialStatus(
 			if err == nil {
 				clusterStatusData, err := json.Marshal(clusterStatus)
 				if err != nil {
-					p.logger.Errorf("failed to marshal cluster health status: %s", err)
+					p.logger.Error("failed to marshal cluster health status: ", logger.Err(err))
 					continue
 				}
 
@@ -153,14 +150,14 @@ func (p *Plugin) publishInitialStatus(
 					return
 				}
 				if err != nil {
-					p.logger.Errorf("failed to publish cluster health status : %s", err)
+					p.logger.Error("failed to publish cluster health status : ", logger.Err(err))
 				}
 			} else {
-				p.logger.Warnf("failed to read cluster health status on startup for cluster %s : %s, retrying...", cl.GetId(), err.Error())
+				p.logger.Warn("failed to read cluster health status on startup for cluster, retrying...", "ID", cl.GetId(), logger.Err(err))
 			}
 		}
 	}
-	p.logger.Infof("manually setting %s cluster's status to disconnected", cl.GetId())
+	p.logger.Info("manually setting cluster's status to disconnected", "ID", cl.GetId())
 	msg := &corev1.ClusterHealthStatus{
 		Cluster: &corev1.Reference{
 			Id: cl.GetId(),
@@ -182,7 +179,7 @@ func (p *Plugin) publishInitialStatus(
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		p.logger.Errorf("failed to marshal default message %s", err)
+		p.logger.Error("failed to marshal default message ", logger.Err(err))
 		return
 	}
 	p.js.Get().PublishAsync(alarms.NewAgentStreamSubject(cl.GetId()), data)
@@ -232,12 +229,12 @@ func (p *Plugin) watchGlobalClusterHealthStatus(client managementv1.ManagementCl
 			}
 			clusterStatusData, err := json.Marshal(clusterStatus)
 			if err != nil {
-				p.logger.Errorf("failed to marshal cluster health status: %s", err)
+				p.logger.Error("failed to marshal cluster health status: ", logger.Err(err))
 				continue
 			}
 			_, err = p.js.Get().PublishAsync(alarms.NewAgentStreamSubject(clusterStatus.Cluster.Id), clusterStatusData)
 			if err != nil {
-				p.logger.Errorf("failed to publish cluster health status : %s", err)
+				p.logger.Error("failed to publish cluster health status : ", logger.Err(err))
 			}
 		}
 	}

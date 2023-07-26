@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -15,7 +16,6 @@ import (
 	"github.com/jhump/protoreflect/desc"
 	"github.com/samber/lo"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -71,7 +71,7 @@ type Server struct {
 	managementv1.UnsafeManagementServer
 	managementServerOptions
 	config            *v1beta1.ManagementSpec
-	logger            *zap.SugaredLogger
+	logger            *slog.Logger
 	rbacProvider      rbac.Provider
 	coreDataSource    CoreDataSource
 	grpcServer        *grpc.Server
@@ -122,7 +122,7 @@ func NewServer(
 	pluginLoader plugins.LoaderInterface,
 	opts ...ManagementServerOption,
 ) *Server {
-	lg := logger.New().Named("mgmt")
+	lg := logger.New().WithGroup("mgmt")
 	options := managementServerOptions{}
 	options.apply(opts...)
 
@@ -159,10 +159,7 @@ func NewServer(
 		}
 		go func() {
 			if err := sp.ServeAPIExtensions(m.config.GRPCListenAddress); err != nil {
-				lg.With(
-					zap.String("plugin", md.Module),
-					zap.Error(err),
-				).Error("failed to serve plugin API extensions")
+				lg.Error("failed to serve plugin API extensions", logger.Err(err), "plugin", md.Module)
 			}
 		}()
 	}))
@@ -205,9 +202,7 @@ func (m *Server) listenAndServeGrpc(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	lg.With(
-		"address", listener.Addr().String(),
-	).Info("management gRPC server starting")
+	lg.Info("management gRPC server starting", "address", listener.Addr().String())
 
 	errC := lo.Async(func() error {
 		return m.grpcServer.Serve(listener)
@@ -226,9 +221,7 @@ func (m *Server) listenAndServeHttp(ctx context.Context) error {
 		return errors.New("GRPCListenAddress not configured")
 	}
 	lg := m.logger
-	lg.With(
-		"address", m.config.HTTPListenAddress,
-	).Info("management HTTP server starting")
+	lg.Info("management HTTP server starting", "address", m.config.HTTPListenAddress)
 	mux := http.NewServeMux()
 	gwmux := runtime.NewServeMux(runtime.WithErrorHandler(extensionsErrorHandler))
 
@@ -303,10 +296,7 @@ func (m *Server) ListCapabilities(ctx context.Context, in *emptypb.Empty) (*mana
 		}
 		details, err := capability.Info(ctx, in)
 		if err != nil {
-			m.logger.With(
-				zap.Error(err),
-				zap.String("capability", name),
-			).Error("failed to fetch capability details")
+			m.logger.Error("failed to fetch capability details", "capability", name, logger.Err(err))
 			continue
 		}
 		items = append(items, &managementv1.CapabilityInfo{

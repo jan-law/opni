@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -15,7 +16,6 @@ import (
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
 	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/rbac"
-	"go.uber.org/zap"
 )
 
 type DataFormat string
@@ -39,7 +39,7 @@ type MultiTenantRuleAggregator struct {
 	cortexClient *http.Client
 	headerCodec  rbac.HeaderCodec
 	bufferPool   *sync.Pool
-	logger       *zap.SugaredLogger
+	logger       *slog.Logger
 	format       DataFormat
 }
 
@@ -59,7 +59,7 @@ func NewMultiTenantRuleAggregator(
 		cortexClient: cortexClient,
 		headerCodec:  headerCodec,
 		bufferPool:   pool,
-		logger:       logger.New().Named("aggregation"),
+		logger:       logger.New().WithGroup("aggregation"),
 		format:       format,
 	}
 }
@@ -75,9 +75,7 @@ type rawPromJSONData struct {
 
 func (a *MultiTenantRuleAggregator) Handle(c *gin.Context) {
 	ids := rbac.AuthorizedClusterIDs(c)
-	a.logger.With(
-		"request", c.FullPath(),
-	).Debugf("aggregating query over %d tenants", len(ids))
+	a.logger.Debug("aggregating query over tenants", "count", len(ids), "request", c.FullPath())
 
 	buf := a.bufferPool.Get().(*bytes.Buffer)
 	switch a.format {
@@ -95,10 +93,7 @@ func (a *MultiTenantRuleAggregator) Handle(c *gin.Context) {
 
 		resp, err := a.cortexClient.Do(req)
 		if err != nil {
-			a.logger.With(
-				"request", c.FullPath(),
-				"error", err,
-			).Error("error querying cortex")
+			a.logger.Error("error querying cortex", logger.Err(err), "request", c.FullPath())
 			c.AbortWithError(http.StatusInternalServerError, err)
 			return
 		}

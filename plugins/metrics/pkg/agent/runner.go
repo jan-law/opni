@@ -8,17 +8,18 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/lestrrat-go/backoff/v2"
 	"github.com/prometheus/prometheus/prompb"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	"github.com/rancher/opni/pkg/clients"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
 	"github.com/rancher/opni/pkg/task"
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/plugins/metrics/apis/remoteread"
 	"github.com/rancher/opni/plugins/metrics/apis/remotewrite"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -71,7 +72,7 @@ func getMessageFromTaskLogs(logs []*corev1.LogEntry) string {
 
 	for i := len(logs) - 1; i >= 0; i-- {
 		log := logs[i]
-		if log.Level != int32(zapcore.DebugLevel) {
+		if log.Level != int32(slog.LevelDebug) {
 			return log.Msg
 		}
 	}
@@ -135,10 +136,10 @@ type taskRunner struct {
 
 	backoffPolicy backoff.Policy
 
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 }
 
-func newTaskRunner(logger *zap.SugaredLogger) *taskRunner {
+func newTaskRunner(logger *slog.Logger) *taskRunner {
 	return &taskRunner{
 		backoffPolicy: backoff.Exponential(
 			backoff.WithMaxRetries(0),
@@ -146,7 +147,7 @@ func newTaskRunner(logger *zap.SugaredLogger) *taskRunner {
 			backoff.WithMaxInterval(5*time.Minute),
 			backoff.WithMultiplier(1.1),
 		),
-		logger: logger.Named("task-runner"),
+		logger: logger.WithGroup("task-runner"),
 	}
 }
 
@@ -193,9 +194,7 @@ func (tr *taskRunner) doPush(ctx context.Context, writeRequest *prompb.WriteRequ
 
 			switch {
 			case strings.Contains(err.Error(), "ingestion rate limit"):
-				tr.logger.With(
-					zap.Error(err),
-				).Warn("failed to push to remote write, retrying...")
+				tr.logger.Warn("failed to push to remote write, retrying...", logger.Err(err))
 			default:
 				return fmt.Errorf("failed to push to remote write: %w", err)
 			}
@@ -223,12 +222,12 @@ func (tr *taskRunner) OnTaskRunning(ctx context.Context, activeTask task.ActiveT
 
 	activeTask.SetProgress(progress)
 
-	activeTask.AddLogEntry(zapcore.InfoLevel, "import running")
+	activeTask.AddLogEntry(slog.LevelInfo, "import running")
 
 	for nextStart < importEnd {
 		select {
 		case <-ctx.Done():
-			activeTask.AddLogEntry(zapcore.InfoLevel, "import stopped")
+			activeTask.AddLogEntry(slog.LevelInfo, "import stopped")
 			return ctx.Err()
 		default: // continue with import
 		}
@@ -257,7 +256,7 @@ func (tr *taskRunner) OnTaskRunning(ctx context.Context, activeTask task.ActiveT
 		readResponse, err := tr.remoteReader.Read(context.Background(), run.Target.Spec.Endpoint, readRequest)
 
 		if err != nil {
-			activeTask.AddLogEntry(zapcore.ErrorLevel, fmt.Sprintf("failed to read from target endpoint: %s", err))
+			activeTask.AddLogEntry(slog.LevelError, fmt.Sprintf("failed to read from target endpoint: %s", err))
 			return fmt.Errorf("failed to read from target endpoint: %w", err)
 		}
 
@@ -276,15 +275,15 @@ func (tr *taskRunner) OnTaskRunning(ctx context.Context, activeTask task.ActiveT
 			}
 
 			if len(chunkedRequests) > 1 {
-				activeTask.AddLogEntry(zapcore.DebugLevel, fmt.Sprintf("split write request into %d chunks", len(chunkedRequests)))
+				activeTask.AddLogEntry(slog.LevelDebug, fmt.Sprintf("split write request into %d chunks", len(chunkedRequests)))
 			}
 
 			for i, request := range chunkedRequests {
 				if err := tr.doPush(ctx, request); err != nil {
-					activeTask.AddLogEntry(zapcore.ErrorLevel, err.Error())
+					activeTask.AddLogEntry(slog.LevelError, err.Error())
 					return err
 				}
-				activeTask.AddLogEntry(zapcore.DebugLevel, fmt.Sprintf("pushed chunk %d of %d", i+1, len(chunkedRequests)))
+				activeTask.AddLogEntry(slog.LevelDebug, fmt.Sprintf("pushed chunk %d of %d", i+1, len(chunkedRequests)))
 			}
 
 			progress.Current = uint64(nextEnd - progressDelta)
@@ -298,11 +297,11 @@ func (tr *taskRunner) OnTaskRunning(ctx context.Context, activeTask task.ActiveT
 func (tr *taskRunner) OnTaskCompleted(_ context.Context, activeTask task.ActiveTask, state task.State, _ ...any) {
 	switch state {
 	case task.StateCompleted:
-		activeTask.AddLogEntry(zapcore.InfoLevel, "completed")
+		activeTask.AddLogEntry(slog.LevelInfo, "completed")
 	case task.StateFailed:
 		// a log will be added in OnTaskRunning for failed imports so we don't need to log anything here
 	case task.StateCanceled:
-		activeTask.AddLogEntry(zapcore.WarnLevel, "canceled")
+		activeTask.AddLogEntry(slog.LevelWarn, "canceled")
 	}
 }
 
@@ -315,7 +314,7 @@ type TargetRunner interface {
 }
 
 type taskingTargetRunner struct {
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 
 	runnerMu sync.RWMutex
 	runner   *taskRunner
@@ -323,7 +322,7 @@ type taskingTargetRunner struct {
 	controller *task.Controller
 }
 
-func NewTargetRunner(logger *zap.SugaredLogger) TargetRunner {
+func NewTargetRunner(logger *slog.Logger) TargetRunner {
 	store := &targetStore{
 		inner: make(map[string]*corev1.TaskStatus),
 	}
@@ -363,7 +362,7 @@ func (runner *taskingTargetRunner) Start(target *remoteread.Target, query *remot
 		return fmt.Errorf("could not run target: %w", err)
 	}
 
-	runner.logger.Infof("started target '%s'", target.Meta.Name)
+	runner.logger.Info("started target", "target", target.Meta.Name)
 
 	return nil
 }
@@ -381,7 +380,7 @@ func (runner *taskingTargetRunner) Stop(name string) error {
 
 	runner.controller.CancelTask(name)
 
-	runner.logger.Infof("stopped target '%s'", name)
+	runner.logger.Info("stopped target", "target", name)
 
 	return nil
 }

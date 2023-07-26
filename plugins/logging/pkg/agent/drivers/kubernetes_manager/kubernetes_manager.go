@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -21,7 +22,6 @@ import (
 	"github.com/rancher/opni/plugins/logging/apis/node"
 	"github.com/rancher/opni/plugins/logging/pkg/agent/drivers"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -60,9 +60,9 @@ type reconcilerState struct {
 }
 
 type KubernetesManagerDriverOptions struct {
-	Namespace  string             `option:"namespace"`
-	RestConfig *rest.Config       `option:"restConfig"`
-	Logger     *zap.SugaredLogger `option:"logger"`
+	Namespace  string       `option:"namespace"`
+	RestConfig *rest.Config `option:"restConfig"`
+	logger     *slog.Logger `option:"logger"`
 }
 
 func NewKubernetesManagerDriver(options KubernetesManagerDriverOptions) (*KubernetesManagerDriver, error) {
@@ -121,17 +121,11 @@ BACKOFF:
 	for backoff.Continue(b) {
 		collectorConf := m.buildLoggingCollectorConfig()
 		if err := m.reconcileObject(collectorConf, config.Enabled); err != nil {
-			m.Logger.With(
-				"object", client.ObjectKeyFromObject(collectorConf).String(),
-				zap.Error(err),
-			).Error("error reconciling object")
+			m.logger.Error("error reconciling object", logger.Err(err), "object", client.ObjectKeyFromObject(collectorConf).String())
 			continue BACKOFF
 		}
 		if err := m.reconcileCollector(config.Enabled); err != nil {
-			m.Logger.With(
-				"object", "opni collector",
-				zap.Error(err),
-			).Error("error reconciling object")
+			m.logger.Error("error reconciling object", logger.Err(err), "object", "opni collector")
 		}
 
 		success = true
@@ -139,9 +133,9 @@ BACKOFF:
 	}
 
 	if !success {
-		m.Logger.Error("timed out reconciling objects")
+		m.logger.Error("timed out reconciling objects")
 	} else {
-		m.Logger.Info("objects reconciled successfully")
+		m.logger.Info("objects reconciled successfully")
 	}
 }
 
@@ -161,7 +155,7 @@ func (m *KubernetesManagerDriver) buildLoggingCollectorConfig() *opniloggingv1be
 func (m *KubernetesManagerDriver) reconcileObject(desired client.Object, shouldExist bool) error {
 	// get the object
 	key := client.ObjectKeyFromObject(desired)
-	lg := m.Logger.With("object", key)
+	lg := m.logger.With("object", key)
 	lg.Info("reconciling object")
 
 	// get the agent statefulset
@@ -272,21 +266,17 @@ func (m *KubernetesManagerDriver) patchObject(current client.Object, desired cli
 	// update the object
 	patchResult, err := patch.DefaultPatchMaker.Calculate(current, desired, patch.IgnoreStatusFields())
 	if err != nil {
-		m.Logger.With(
-			zap.Error(err),
-		).Warn("could not match objects")
+		m.logger.Warn("could not match objects", logger.Err(err))
 		return err
 	}
 	if patchResult.IsEmpty() {
-		m.Logger.Info("resource is in sync")
+		m.logger.Info("resource is in sync")
 		return nil
 	}
-	m.Logger.Info("resource diff")
+	m.logger.Info("resource diff")
 
 	if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(desired); err != nil {
-		m.Logger.With(
-			zap.Error(err),
-		).Error("failed to set last applied annotation")
+		m.logger.Error("failed to set last applied annotation", logger.Err(err))
 	}
 
 	metaAccessor := meta.NewAccessor()
@@ -299,7 +289,7 @@ func (m *KubernetesManagerDriver) patchObject(current client.Object, desired cli
 		return err
 	}
 
-	m.Logger.Info("updating resource")
+	m.logger.Info("updating resource")
 
 	return m.k8sClient.Update(context.TODO(), desired)
 }
@@ -328,7 +318,7 @@ func init() {
 	drivers.NodeDrivers.Register("kubernetes-manager", func(_ context.Context, opts ...driverutil.Option) (drivers.LoggingNodeDriver, error) {
 		options := KubernetesManagerDriverOptions{
 			Namespace: os.Getenv("POD_NAMESPACE"),
-			Logger:    logger.NewPluginLogger().Named("logging").Named("kubernetes-manager"),
+			logger:    logger.NewPluginLogger().WithGroup("logging").WithGroup("kubernetes-manager"),
 		}
 		driverutil.ApplyOptions(&options, opts...)
 		return NewKubernetesManagerDriver(options)

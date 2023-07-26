@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sync/atomic"
 	"time"
@@ -23,7 +24,6 @@ import (
 	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/pkg/validation"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -36,7 +36,7 @@ type AlertManagerSyncerV1 struct {
 	util.Initializer
 	alertingv1.UnsafeSyncerServer
 
-	lg           *zap.SugaredLogger
+	lg           *slog.Logger
 	serverConfig *alertingv1.SyncerConfig
 	lastSynced   *timestamppb.Timestamp
 
@@ -59,7 +59,7 @@ func NewAlertingSyncerV1(
 	init.Store(false)
 	server := &AlertManagerSyncerV1{
 		serverConfig: serverConfig,
-		lg:           logger.NewPluginLogger().Named("alerting-syncer"),
+		lg:           logger.NewPluginLogger().WithGroup("alerting-syncer"),
 	}
 	go func() {
 		server.Initialize(ctx, mgmtClient)
@@ -87,7 +87,7 @@ func (a *AlertManagerSyncerV1) Initialize(
 			whoami = uuid.New().String()
 		}
 		a.whoami = whoami
-		a.lg.Infof("starting alerting syncer server as identity %s", a.whoami)
+		a.lg.Info("starting alerting syncer server as identity", "identity", a.whoami)
 
 		a.alertingClient = client.NewClient(
 			nil,
@@ -124,7 +124,7 @@ func (a *AlertManagerSyncerV1) connect(ctx context.Context) alertops.ConfigRecon
 		a.lg.Debug("trying to acquire remote syncer stream")
 		stream, err := a.gatewayClient.SyncConfig(ctx)
 		if err != nil {
-			a.lg.Errorf("failed to connect to gateway: %s", err)
+			a.lg.Error("failed to connect to gateway", logger.Err(err))
 			continue
 		}
 		syncerClient = stream
@@ -160,25 +160,25 @@ func (a *AlertManagerSyncerV1) recvMsgs(
 					if st.Code() == codes.Unimplemented {
 						panic(err)
 					} else if st.Code() == codes.Unavailable {
-						a.lg.Warnf("remote syncer unavailable, reconnecting, ...")
+						a.lg.Warn("remote syncer unavailable, reconnecting, ...")
 						break
 					} else {
-						a.lg.With("code", st.Code()).Errorf("failed to receive sync config message: %s", err)
+						a.lg.Error("failed to receive sync config message", logger.Err(err), "code", st.Code())
 						break
 					}
 				} else if err != nil {
-					a.lg.Errorf("failed to receive sync config message: %s", err)
+					a.lg.Error("failed to receive sync config message", logger.Err(err))
 					break
 				}
-				a.lg.Infof("received sync (%s) config message", syncReq.SyncId)
+				a.lg.Info("received sync config message", "ID", syncReq.SyncId)
 				if a.lastSyncId == syncReq.SyncId {
-					a.lg.Infof("already up to date")
+					a.lg.Info("already up to date")
 					goto RECV
 				}
 				syncState := alertops.SyncState_Synced
 				for _, req := range syncReq.GetItems() {
 					if _, err := a.PutConfig(ctx, req); err != nil {
-						a.lg.Errorf("failed to put config: %s", err)
+						a.lg.Error("failed to put config", logger.Err(err))
 						syncState = alertops.SyncState_SyncError
 					}
 				}
@@ -192,12 +192,12 @@ func (a *AlertManagerSyncerV1) recvMsgs(
 					State:         syncState,
 					SyncId:        syncReq.SyncId,
 				}); err != nil {
-					a.lg.Errorf("failed to send sync state: %s", err)
+					a.lg.Error("failed to send sync state", logger.Err(err))
 				}
 			}
 			// close current stream & reconnect
 			if err := remoteSyncerClient.CloseSend(); err != nil {
-				a.lg.Errorf("failed to close stream: %s", err)
+				a.lg.Error("failed to close stream", logger.Err(err))
 			}
 			reconnectTimer.Reset(reconnectDur)
 		}
@@ -211,7 +211,7 @@ func (a *AlertManagerSyncerV1) PutConfig(ctx context.Context, incomingConfig *al
 	lg := a.lg.With("config-path", a.serverConfig.AlertmanagerConfigPath)
 	var c *config.Config
 	if err := yaml.Unmarshal(incomingConfig.Config, &c); err != nil {
-		lg.Errorf("failed to unmarshal config: %s", err)
+		lg.Error("failed to unmarshal config", logger.Err(err))
 		return nil, validation.Errorf("improperly formatted config : %s", err)
 	}
 	if err := os.WriteFile(a.serverConfig.AlertmanagerConfigPath, incomingConfig.GetConfig(), 0644); err != nil {
@@ -230,7 +230,7 @@ func (a *AlertManagerSyncerV1) PutConfig(ctx context.Context, incomingConfig *al
 	for backoffv2.Continue(b) {
 		err := a.alertingClient.StatusClient().Ready(ctx)
 		if err != nil {
-			lg.Warnf("alerting client not yet ready: %s", err)
+			lg.Warn("alerting client not yet ready", logger.Err(err))
 			continue
 		}
 

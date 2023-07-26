@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 
 	"github.com/rancher/opni/pkg/config/v1beta1"
 	"github.com/rancher/opni/pkg/logger"
@@ -23,7 +24,7 @@ type EtcdLockManager struct {
 func NewEtcdLockManager(ctx context.Context, conf *v1beta1.EtcdStorageSpec, opts ...EtcdStoreOption) (*EtcdLockManager, error) {
 	options := EtcdStoreOptions{}
 	options.apply(opts...)
-	lg := logger.New(logger.WithLogLevel(zap.WarnLevel)).Named("etcd-locker")
+	lg := logger.NewZap(logger.WithLogLevel(slog.LevelWarn)).Named("etcd-locker")
 	var tlsConfig *tls.Config
 	if conf.Certs != nil {
 		var err error

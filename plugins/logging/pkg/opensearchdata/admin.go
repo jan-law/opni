@@ -7,6 +7,7 @@ import (
 
 	"github.com/lestrrat-go/backoff/v2"
 	"github.com/opensearch-project/opensearch-go/opensearchutil"
+	"github.com/rancher/opni/pkg/logger"
 	opensearchtypes "github.com/rancher/opni/pkg/opensearch/opensearch/types"
 	"github.com/rancher/opni/pkg/plugins/apis/system"
 )
@@ -31,7 +32,7 @@ func (m *Manager) CreateInitialAdmin(password []byte, readyFunc ...ReadyFunc) {
 		Value: []byte(initialAdminPending),
 	})
 	if err != nil {
-		m.logger.Warnf("failed to store initial admin state: %v", err)
+		m.logger.Warn("failed to store initial admin state", logger.Err(err))
 	}
 	m.adminInitStateRW.Unlock()
 
@@ -73,7 +74,7 @@ CREATE:
 		case <-b.Next():
 			err := m.maybeCreateUser(ctx, user)
 			if err != nil {
-				m.logger.Errorf("failed to create admin user: %v", err)
+				m.logger.Error("failed to create admin user: ", logger.Err(err))
 				continue
 			}
 			break CREATE
@@ -86,7 +87,7 @@ CREATE:
 		Value: []byte(initialAdminCreated),
 	})
 	if err != nil {
-		m.logger.Warnf("failed to store initial admin state: %v", err)
+		m.logger.Warn("failed to store initial admin state", logger.Err(err))
 	}
 	m.adminInitStateRW.Unlock()
 }
@@ -126,7 +127,7 @@ func (m *Manager) maybeCreateUser(ctx context.Context, user opensearchtypes.User
 	if resp.IsError() {
 		return fmt.Errorf("failed to create user: %s", resp.String())
 	}
-	m.logger.Debugf("user successfully created: %s", resp.String())
+	m.logger.Debug("user successfully created", "resp", resp.String())
 	return nil
 }
 
@@ -136,7 +137,7 @@ func (m *Manager) shouldCreateInitialAdmin() bool {
 
 	idExists, err := m.keyExists(initialAdminKey)
 	if err != nil {
-		m.logger.Errorf("failed to check initial admin state: %v", err)
+		m.logger.Error("failed to check initial admin state: ", logger.Err(err))
 		return false
 	}
 
@@ -149,7 +150,7 @@ func (m *Manager) shouldCreateInitialAdmin() bool {
 		Key: fmt.Sprintf("%s%s", opensearchPrefix, initialAdminKey),
 	})
 	if err != nil {
-		m.logger.Errorf("failed to check initial admin state: %v", err)
+		m.logger.Error("failed to check initial admin state: ", logger.Err(err))
 		return false
 	}
 

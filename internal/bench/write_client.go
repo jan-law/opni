@@ -32,6 +32,7 @@ import (
 	config_util "github.com/prometheus/common/config"
 	"github.com/prometheus/common/version"
 	"github.com/prometheus/prometheus/storage/remote"
+	"github.com/rancher/opni/pkg/logger"
 )
 
 const maxErrMsgLen = 512
@@ -109,7 +110,7 @@ func (c *WriteClient) Store(ctx context.Context, req []byte) error {
 	defer func() {
 		_, err := io.Copy(io.Discard, httpResp.Body)
 		if err != nil {
-			level.Error(c.logger).Log("msg", "unable to discard write request body", "err", err)
+			level.Error(c.logger).Log("msg", "unable to discard write request body", logger.Err(err))
 		}
 		httpResp.Body.Close()
 	}()

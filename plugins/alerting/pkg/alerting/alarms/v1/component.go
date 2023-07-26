@@ -2,6 +2,7 @@ package alarms
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/nats-io/nats.go"
@@ -19,7 +20,6 @@ import (
 	"github.com/rancher/opni/plugins/metrics/apis/cortexops"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"go.uber.org/zap"
 )
 
 var _ rules.RuleSyncServer = (*AlarmServerComponent)(nil)
@@ -34,7 +34,7 @@ type AlarmServerComponent struct {
 	mu sync.Mutex
 	server.Config
 
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 
 	runner        *Runner
 	notifications *notifications.NotificationServerComponent
@@ -56,7 +56,7 @@ type AlarmServerComponent struct {
 
 func NewAlarmServerComponent(
 	ctx context.Context,
-	logger *zap.SugaredLogger,
+	logger *slog.Logger,
 	notifications *notifications.NotificationServerComponent,
 ) *AlarmServerComponent {
 	comp := &AlarmServerComponent{
@@ -132,7 +132,7 @@ func (a *AlarmServerComponent) Sync(ctx context.Context, syncInfo alertingSync.S
 		conds = append(conds, groupConds...)
 	}
 	eg := &util.MultiErrGroup{}
-	a.logger.Infof("syncing %d conditions", len(conds))
+	a.logger.Info("syncing conditions", "count", len(conds))
 	for _, cond := range conds {
 		cond := cond
 		if syncInfo.ShouldSync {
@@ -179,7 +179,7 @@ func (a *AlarmServerComponent) Sync(ctx context.Context, syncInfo alertingSync.S
 		}
 	}
 	eg.Wait()
-	a.logger.Infof("successfully synced (%d/%d) conditions", len(conds)-len(eg.Errors()), len(conds))
+	a.logger.Info("successfully synced conditions:", "done", len(conds)-len(eg.Errors()), "total", len(conds))
 	if err := eg.Error(); err != nil {
 		return err
 	}

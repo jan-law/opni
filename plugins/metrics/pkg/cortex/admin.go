@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -20,7 +21,6 @@ import (
 	"github.com/rancher/opni/plugins/metrics/apis/cortexadmin"
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
-	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -29,6 +29,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/rancher/opni/pkg/config/v1beta1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/util"
 	metricsutil "github.com/rancher/opni/plugins/metrics/pkg/util"
 )
@@ -42,7 +43,7 @@ type CortexAdminServer struct {
 type CortexAdminServerConfig struct {
 	CortexClientSet ClientSet                  `validate:"required"`
 	Config          *v1beta1.GatewayConfigSpec `validate:"required"`
-	Logger          *zap.SugaredLogger         `validate:"required"`
+	Logger          *slog.Logger               `validate:"required"`
 }
 
 func (p *CortexAdminServer) Initialize(conf CortexAdminServerConfig) {
@@ -74,9 +75,7 @@ func (p *CortexAdminServer) AllUserStats(ctx context.Context, _ *emptypb.Empty) 
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-			p.Logger.With(
-				"err", err,
-			).Error("failed to close response body")
+			p.Logger.Error("failed to close response body", logger.Err(err))
 		}
 	}(resp.Body)
 	if resp.StatusCode != http.StatusOK {
@@ -160,7 +159,7 @@ func (p *CortexAdminServer) WriteMetrics(ctx context.Context, in *cortexadmin.Wr
 	lg.Debug("writing metrics to cortex")
 	_, err := p.CortexClientSet.Distributor().Push(outgoingContext(ctx, in), cortexReq)
 	if err != nil {
-		p.Logger.With(zap.Error(err)).Error("failed to write metrics")
+		p.Logger.Error("failed to write metrics", logger.Err(err))
 		return nil, err
 	}
 	return &cortexadmin.WriteResponse{}, nil
@@ -201,30 +200,22 @@ func (p *CortexAdminServer) Query(
 	req.Header.Set(orgIDCodec.Key(), orgIDCodec.Encode(in.Tenants))
 	resp, err := p.CortexClientSet.HTTP().Do(req)
 	if err != nil {
-		lg.With(
-			"error", err,
-		).Error("query failed")
+		lg.Error("query failed", logger.Err(err))
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		lg.With(
-			"status", resp.Status,
-		).Error("query failed")
+		lg.Error("query failed", "status", resp.Status)
 		return nil, fmt.Errorf("query failed: %s", resp.Status)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-			lg.With(
-				"error", err,
-			).Error("failed to close response body")
+			lg.Error("failed to close response body", logger.Err(err))
 		}
 	}(resp.Body)
 	responseBuf := new(bytes.Buffer)
 	if _, err := io.Copy(responseBuf, resp.Body); err != nil {
-		lg.With(
-			"error", err,
-		).Error("failed to read response body")
+		lg.Error("failed to read response body", logger.Err(err))
 		return nil, err
 	}
 	return &cortexadmin.QueryResponse{
@@ -265,24 +256,18 @@ func (p *CortexAdminServer) QueryRange(
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		lg.With(
-			"status", resp.Status,
-		).Error("query failed")
+		lg.Error("query failed", "status", resp.Status)
 		return nil, fmt.Errorf("query failed: %s", resp.Status)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-			lg.With(
-				"error", err,
-			).Error("failed to close response body")
+			lg.Error("failed to close response body", logger.Err(err))
 		}
 	}(resp.Body)
 	responseBuf := new(bytes.Buffer)
 	if _, err := io.Copy(responseBuf, resp.Body); err != nil {
-		lg.With(
-			"error", err,
-		).Error("failed to read response body")
+		lg.Error("failed to read response body", logger.Err(err))
 		return nil, err
 	}
 	return &cortexadmin.QueryResponse{
@@ -336,9 +321,7 @@ func (p *CortexAdminServer) GetRule(ctx context.Context,
 	req.Header.Set(orgIDCodec.Key(), orgIDCodec.Encode([]string{in.ClusterId}))
 	resp, err := p.CortexClientSet.HTTP().Do(req)
 	if err != nil {
-		lg.With(
-			"error", err,
-		).Error("fetch failed")
+		lg.Error("fetch failed", logger.Err(err))
 		return nil, err
 	}
 	if resp.StatusCode == http.StatusNotFound {
@@ -346,24 +329,18 @@ func (p *CortexAdminServer) GetRule(ctx context.Context,
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		lg.With(
-			"status", resp.Status,
-		).Error("fetch failed")
+		lg.Error("fetch failed", "status", resp.Status)
 		return nil, fmt.Errorf("fetch failed: %s", resp.Status)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-			lg.With(
-				"error", err,
-			).Error("failed to close response body")
+			lg.Error("failed to close response body", logger.Err(err))
 		}
 	}(resp.Body)
 	responseBuf := new(bytes.Buffer)
 	if _, err := io.Copy(responseBuf, resp.Body); err != nil {
-		lg.With(
-			"error", err,
-		).Error("failed to read response body")
+		lg.Error("failed to read response body", logger.Err(err))
 		return nil, err
 	}
 	return &cortexadmin.QueryResponse{
@@ -392,25 +369,23 @@ func (p *CortexAdminServer) ListRules(ctx context.Context, req *cortexadmin.List
 			defer wg.Done()
 			resp, err := p.listCortexRules(ctx, clusterId)
 			if err != nil {
-				lg.Error(err)
+				lg.Error("error", logger.Err(err))
 				return
 			}
 			if resp.StatusCode != http.StatusOK {
-				lg.With(
-					"status", resp.Status,
-				).Error("list rules failed")
+				lg.Error("list rules failed", "status", resp.Status)
 				return
 			}
 			body, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
-				lg.Errorf("failed to read response body: %w", err)
+				lg.Error("failed to read response body", logger.Err(err))
 				return
 			}
 
 			ruleResp := &cortexadmin.ListRulesResponse{}
 			err = json.Unmarshal(body, ruleResp)
 			if err != nil {
-				lg.Error(err)
+				lg.Error("error", logger.Err(err))
 				return
 			}
 
@@ -452,16 +427,11 @@ func (p *CortexAdminServer) LoadRules(ctx context.Context,
 	req.Header.Set(orgIDCodec.Key(), orgIDCodec.Encode([]string{in.ClusterId}))
 	resp, err := p.CortexClientSet.HTTP().Do(req)
 	if err != nil {
-		lg.With(
-			"error", err,
-		).Error("loading rules failed")
+		lg.Error("loading rules failed", logger.Err(err))
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusAccepted {
-		lg.With(
-			"Code", resp.StatusCode,
-			"error", resp.Status,
-		).Error("loading rules failed")
+		lg.Error("loading rules failed", "Code", resp.StatusCode, "error", resp.Status)
 		return nil, fmt.Errorf("loading rules failed: %d", resp.StatusCode)
 	}
 	return &emptypb.Empty{}, nil
@@ -488,15 +458,11 @@ func (p *CortexAdminServer) DeleteRule(
 	req.Header.Set(orgIDCodec.Key(), orgIDCodec.Encode([]string{in.ClusterId}))
 	resp, err := p.CortexClientSet.HTTP().Do(req)
 	if err != nil {
-		lg.With(
-			"error", err,
-		).Error("delete rule group failed")
+		lg.Error("delete rule group failed", logger.Err(err))
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusAccepted {
-		lg.With(
-			"status", resp.Status,
-		).Error("delete rule group failed")
+		lg.Error("delete rule group failed", "status", resp.Status)
 
 		if resp.StatusCode == http.StatusNotFound { // return grpc not found in this case
 			err := status.Error(codes.NotFound, fmt.Sprintf("delete rule group failed %s", err))
@@ -630,7 +596,7 @@ func (p *CortexAdminServer) FlushBlocks(
 	body, _ := io.ReadAll(resp.Body)
 	err = resp.Body.Close()
 	if err != nil {
-		p.Logger.Error("failed to close response body")
+		p.Logger.Error("failed to close response body", logger.Err(err))
 	}
 	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&ring); err != nil {
 		return nil, err
@@ -673,23 +639,16 @@ func (p *CortexAdminServer) FlushBlocks(
 			}
 			resp, err := httpClient.Do(req)
 			if err != nil {
-				lg.With(
-					zap.Error(err),
-				).Error("failed to flush ingester")
+				lg.Error("failed to flush ingester", logger.Err(err))
 				return err
 			}
 			if resp.StatusCode != http.StatusNoContent {
 				body, _ := io.ReadAll(resp.Body)
 				err := resp.Body.Close()
 				if err != nil {
-					lg.Error(
-						"failed to close response body",
-					)
+					lg.Error("failed to close response body", logger.Err(err))
 				}
-				lg.With(
-					"code", resp.StatusCode,
-					"error", string(body),
-				).Errorf("failed to flush ingester")
+				lg.Error("failed to flush ingester", "code", resp.StatusCode, "error", string(body))
 			}
 
 			lg.Info("flushed ingester successfully")
@@ -746,9 +705,7 @@ func (p *CortexAdminServer) GetCortexStatus(ctx context.Context, _ *emptypb.Empt
 	})
 
 	if err := eg.Wait(); err != nil {
-		p.Logger.With(
-			zap.Error(err),
-		).Error("failed to get cluster status")
+		p.Logger.Error("failed to get cluster status", logger.Err(err))
 		return nil, err
 	}
 	stat.Timestamp = timestamppb.Now()
@@ -805,15 +762,11 @@ func (p *CortexAdminServer) proxyCortexToPrometheus(
 	req.Header.Set(orgIDCodec.Key(), orgIDCodec.Encode([]string{tenant}))
 	resp, err := p.CortexClientSet.HTTP().Do(req)
 	if err != nil {
-		p.Logger.With(
-			"request", url,
-		).Errorf("failed with %v", err)
+		p.Logger.Error("failed with err:", logger.Err(err), "request", url)
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		p.Logger.With(
-			"request", url,
-		).Errorf("request failed with %s", resp.Status)
+		p.Logger.Error("request failed with", "status", resp.Status, "request", url)
 		return nil, fmt.Errorf("request failed with: %s", resp.Status)
 	}
 	return resp, nil

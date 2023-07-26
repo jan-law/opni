@@ -3,6 +3,7 @@ package rules
 import (
 	"context"
 	"io/fs"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -11,13 +12,12 @@ import (
 	"github.com/prometheus/prometheus/model/rulefmt"
 	"github.com/rancher/opni/pkg/config/v1beta1"
 	"github.com/rancher/opni/pkg/logger"
-	"go.uber.org/zap"
 )
 
 type FilesystemRuleFinder struct {
 	staticRuleFinderOptions
 	config *v1beta1.FilesystemRulesSpec
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 }
 
 type staticRuleFinderOptions struct {
@@ -47,7 +47,7 @@ func NewFilesystemRuleFinder(config *v1beta1.FilesystemRulesSpec, opts ...Filesy
 	return &FilesystemRuleFinder{
 		staticRuleFinderOptions: options,
 		config:                  config,
-		logger:                  logger.New().Named("rules"),
+		logger:                  logger.New().WithGroup("rules"),
 	}
 }
 
@@ -59,35 +59,29 @@ func (f *FilesystemRuleFinder) Find(context.Context) ([]RuleGroup, error) {
 		matched, err := glob.Glob(f.fs, pathExpr)
 		lg := f.logger.With("expression", pathExpr)
 		if err != nil {
-			lg.With(
-				zap.Error(err),
-			).Warn("error searching for rules files using path expression")
+			lg.Warn("error searching for rules files using path expression", logger.Err(err))
 			continue
 		}
 
-		lg.Debugf("found %d rules files matching path expression", len(matched))
+		lg.Debug("found rules files matching path expression", "count", len(matched))
 		for _, path := range matched {
 			lg := lg.With("path", path)
 			data, err := fs.ReadFile(f.fs, path)
 			if err != nil {
-				lg.With(
-					zap.Error(err),
-				).Warn("error reading rules file")
+				lg.Warn("error reading rules file", logger.Err(err))
 				continue
 			}
 			list, errs := rulefmt.Parse(data)
 			if len(errs) > 0 {
-				lg.With(
-					zap.Error(errors.Combine(errs...)),
-				).Warn("error parsing rules file")
+				lg.Warn("error parsing rules file", errors.Combine(errs...))
 				continue
 			}
 			groups = append(groups, list.Groups...)
-			f.logger.Debugf("found %d rule groups in file %s", len(list.Groups), path)
+			f.logger.Debug("found rule groups in file", "numGroups", len(list.Groups), "path", path)
 		}
 	}
 
-	f.logger.Infof("found %d rule groups in filesystem", len(groups))
+	f.logger.Info("found rule groups in filesystem", "count", len(groups))
 	ruleGroups := []RuleGroup{}
 	for _, g := range groups {
 		ruleGroups = append(ruleGroups, RuleGroup(g))

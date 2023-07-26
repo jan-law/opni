@@ -29,6 +29,7 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/thanos-io/thanos/pkg/discovery/dns"
 )
 
@@ -122,7 +123,7 @@ func (r *RingChecker) Check() {
 
 		rs, err := r.Ring.Get(token, ring.Write, []ring.InstanceDesc{}, nil, nil)
 		if err != nil {
-			level.Warn(r.logger).Log("msg", "unable to get token for metric", "err", err)
+			level.Warn(r.logger).Log("msg", "unable to get token for metric", logger.Err(err))
 			continue
 		}
 

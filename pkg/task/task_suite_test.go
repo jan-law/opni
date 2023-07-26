@@ -5,13 +5,14 @@ import (
 	"errors"
 	"testing"
 
+	"log/slog"
+
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	"github.com/rancher/opni/pkg/task"
 	_ "github.com/rancher/opni/pkg/test/setup"
-	"go.uber.org/zap/zapcore"
 )
 
 func TestTask(t *testing.T) {
@@ -37,7 +38,7 @@ type SampleTaskRunner struct {
 }
 
 func (a *SampleTaskRunner) OnTaskPending(ctx context.Context, ti task.ActiveTask) error {
-	ti.AddLogEntry(zapcore.DebugLevel, "pending")
+	ti.AddLogEntry(slog.LevelDebug, "pending")
 	return ctx.Err()
 }
 
@@ -45,7 +46,7 @@ func (a *SampleTaskRunner) OnTaskRunning(ctx context.Context, ti task.ActiveTask
 	var config SampleTaskConfig
 	ti.LoadTaskMetadata(&config)
 
-	ti.AddLogEntry(zapcore.InfoLevel, "running")
+	ti.AddLogEntry(slog.LevelInfo, "running")
 
 	progress := ti.GetProgress()
 	for i := progress.GetCurrent(); i < uint64(config.Limit); i++ {
@@ -69,10 +70,10 @@ func (a *SampleTaskRunner) OnTaskRunning(ctx context.Context, ti task.ActiveTask
 func (a *SampleTaskRunner) OnTaskCompleted(_ context.Context, ti task.ActiveTask, state task.State, _ ...any) {
 	switch state {
 	case task.StateCompleted:
-		ti.AddLogEntry(zapcore.InfoLevel, "completed")
+		ti.AddLogEntry(slog.LevelInfo, "completed")
 	case task.StateFailed:
-		ti.AddLogEntry(zapcore.ErrorLevel, "failed")
+		ti.AddLogEntry(slog.LevelError, "failed")
 	case task.StateCanceled:
-		ti.AddLogEntry(zapcore.WarnLevel, "canceled")
+		ti.AddLogEntry(slog.LevelWarn, "canceled")
 	}
 }

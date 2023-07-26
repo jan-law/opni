@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"slices"
 
@@ -14,7 +15,7 @@ import (
 
 	promoperatorv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	monitoringv1beta1 "github.com/rancher/opni/apis/monitoring/v1beta1"
-	"go.uber.org/zap"
+	"github.com/rancher/opni/pkg/logger"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -25,7 +26,7 @@ import (
 
 type podMonitorScrapeConfigRetriever struct {
 	client client.Client
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 	// current namespace the collector is defined in.
 	// it should only discoverer secrets for TLS/auth in this namespace.
 	namespace string
@@ -33,7 +34,7 @@ type podMonitorScrapeConfigRetriever struct {
 }
 
 func NewPodMonitorScrapeConfigRetriever(
-	logger *zap.SugaredLogger,
+	logger *slog.Logger,
 	client client.Client,
 	namespace string,
 	discovery monitoringv1beta1.PrometheusDiscovery,
@@ -76,7 +77,7 @@ func (p *podMonitorScrapeConfigRetriever) resolvePodMonitor(ns []string) (*promo
 				listOptions,
 			)
 			if err != nil {
-				p.logger.Warnf("failed to list pod monitors %s", err)
+				p.logger.Warn("failed to list pod monitors", logger.Err(err))
 				continue
 			}
 			podMonitorList.Items = append(podMonitorList.Items, podMonitorList.Items...)
@@ -97,7 +98,7 @@ func (p *podMonitorScrapeConfigRetriever) Yield() (cfg *promCRDOperatorConfig, r
 	// jobName -> scrapeConfigs
 	cfgMap := jobs{}
 	secretRes := []SecretResolutionConfig{}
-	p.logger.Infof("found %d pod monitors", len(pMons))
+	p.logger.Info("found pod monitors", "count", len(pMons))
 	for _, pMon := range pMons {
 		lg := p.logger.With("podMonitor", pMon.Namespace+"-"+pMon.Name)
 		selectorMap, err := metav1.LabelSelectorAsMap(&pMon.Spec.Selector)
@@ -114,7 +115,7 @@ func (p *podMonitorScrapeConfigRetriever) Yield() (cfg *promCRDOperatorConfig, r
 			}
 			err = p.client.List(context.TODO(), pList, listOptions)
 			if err != nil {
-				lg.Warnf("failed to select pods for pod monitor %s", selectorMap)
+				lg.Warn("failed to select pods for pod monitor", "podMonitor", selectorMap)
 				continue
 			}
 			podList.Items = append(podList.Items, pList.Items...)
@@ -266,7 +267,7 @@ func (p *podMonitorScrapeConfigRetriever) generateStaticPodConfig(
 				CredentialsFile: bearerSecretRes.Path(),
 			}
 		} else {
-			p.logger.Warnf("failed to get expected bearer token secret %s for pod monitor %s", ep.BearerTokenSecret.Name, m.Name)
+			p.logger.Warn("failed to get expected bearer token secret for pod monitor", "secret", ep.BearerTokenSecret.Name, "podMonitor", m.Name)
 		}
 	}
 

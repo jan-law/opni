@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"embed"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/rancher/opni/pkg/auth/openid"
 	"github.com/rancher/opni/pkg/util"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -31,7 +31,7 @@ type ServerConfig struct {
 	Debug                 bool                `json:"debug,omitempty"`
 	OpenID                openid.OpenidConfig `json:"openid,omitempty"`
 
-	Logger *zap.SugaredLogger `json:"-"`
+	Logger *slog.Logger `json:"-"`
 }
 
 type Server struct {
@@ -76,9 +76,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		return err
 	}
 
-	lg.With(
-		"address", listener.Addr(),
-	).Info("noauth server starting")
+	lg.Info("noauth server starting", "address", listener.Addr())
 
 	mux := http.NewServeMux()
 
@@ -94,9 +92,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 func (s *Server) connectToManagementAPI(ctx context.Context) error {
 	lg := s.Logger
-	lg.With(
-		"address", s.ManagementAPIEndpoint,
-	).Info("connecting to management api")
+	lg.Info("connecting to management api", "address", s.ManagementAPIEndpoint)
 	cc, err := grpc.DialContext(ctx, s.ManagementAPIEndpoint,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainStreamInterceptor(otelgrpc.StreamClientInterceptor()),

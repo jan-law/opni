@@ -5,11 +5,11 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.uber.org/zap"
 
 	"github.com/lestrrat-go/backoff/v2"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
@@ -45,7 +45,7 @@ const (
 // EtcdStore implements TokenStore and TenantStore.
 type EtcdStore struct {
 	EtcdStoreOptions
-	Logger *zap.SugaredLogger
+	Logger *slog.Logger
 	Client *clientv3.Client
 }
 
@@ -72,7 +72,8 @@ func WithPrefix(prefix string) EtcdStoreOption {
 func NewEtcdStore(ctx context.Context, conf *v1beta1.EtcdStorageSpec, opts ...EtcdStoreOption) (*EtcdStore, error) {
 	options := EtcdStoreOptions{}
 	options.apply(opts...)
-	lg := logger.New(logger.WithLogLevel(zap.WarnLevel)).Named("etcd")
+	lg := logger.New().WithGroup("etcd")
+	slog.SetDefault(lg)
 	var tlsConfig *tls.Config
 	if conf.Certs != nil {
 		var err error
@@ -85,15 +86,12 @@ func NewEtcdStore(ctx context.Context, conf *v1beta1.EtcdStorageSpec, opts ...Et
 		Endpoints: conf.Endpoints,
 		TLS:       tlsConfig,
 		Context:   ctx,
-		Logger:    lg.Desugar(),
 	}
 	cli, err := clientv3.New(clientConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create etcd client: %w", err)
 	}
-	lg.With(
-		"endpoints", clientConfig.Endpoints,
-	).Info("connecting to etcd")
+	lg.Info("connecting to etcd", "endpoints", clientConfig.Endpoints)
 	return &EtcdStore{
 		EtcdStoreOptions: options,
 		Logger:           lg,

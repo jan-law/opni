@@ -2,11 +2,11 @@ package slo
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	sloapi "github.com/rancher/opni/plugins/slo/apis/slo"
-	"go.uber.org/zap"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -54,7 +54,7 @@ type RequestBase struct {
 	req proto.Message
 	p   *Plugin
 	ctx context.Context
-	lg  *zap.SugaredLogger
+	lg  *slog.Logger
 }
 
 type SLOMonitoring struct {
@@ -69,7 +69,7 @@ type MonitoringServiceBackend struct {
 	RequestBase
 }
 
-func NewSLOMonitoringStore(p *Plugin, lg *zap.SugaredLogger) SLOStore {
+func NewSLOMonitoringStore(p *Plugin, lg *slog.Logger) SLOStore {
 	return &SLOMonitoring{
 		RequestBase{
 			req: nil,
@@ -80,7 +80,7 @@ func NewSLOMonitoringStore(p *Plugin, lg *zap.SugaredLogger) SLOStore {
 	}
 }
 
-func NewMonitoringServiceBackend(p *Plugin, lg *zap.SugaredLogger) ServiceBackend {
+func NewMonitoringServiceBackend(p *Plugin, lg *slog.Logger) ServiceBackend {
 	return &MonitoringServiceBackend{
 		RequestBase{
 			req: nil,

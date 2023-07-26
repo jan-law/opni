@@ -1,8 +1,7 @@
 package gateway
 
 import (
-	"go.uber.org/zap"
-
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/plugins/metrics/pkg/gateway/drivers"
 )
 
@@ -14,9 +13,7 @@ func (p *Plugin) configureCortexManagement() {
 
 	builder, ok := drivers.ClusterDrivers.Get(driverName)
 	if !ok {
-		p.logger.With(
-			"driver", driverName,
-		).Error("unknown cluster driver, using fallback noop driver")
+		p.logger.Error("unknown cluster driver, using fallback noop driver", "driver", driverName)
 
 		builder, ok = drivers.ClusterDrivers.Get("noop")
 		if !ok {
@@ -26,10 +23,7 @@ func (p *Plugin) configureCortexManagement() {
 
 	driver, err := builder(p.ctx)
 	if err != nil {
-		p.logger.With(
-			"driver", driverName,
-			zap.Error(err),
-		).Error("failed to initialize cluster driver")
+		p.logger.Error("failed to initialize cluster driver", logger.Err(err), "driver", driverName)
 		return
 	}
 

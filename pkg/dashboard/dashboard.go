@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -21,7 +22,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 )
 
 type ExtraHandler struct {
@@ -42,7 +42,7 @@ func AddExtraHandler(path string, handler http.HandlerFunc) {
 
 type Server struct {
 	config *v1beta1.ManagementSpec
-	logger *zap.SugaredLogger
+	logger *slog.Logger
 }
 
 func NewServer(config *v1beta1.ManagementSpec) (*Server, error) {
@@ -54,7 +54,7 @@ func NewServer(config *v1beta1.ManagementSpec) (*Server, error) {
 	}
 	return &Server{
 		config: config,
-		logger: logger.New().Named("dashboard"),
+		logger: logger.New().WithGroup("dashboard"),
 	}, nil
 }
 
@@ -64,9 +64,7 @@ func (ws *Server) ListenAndServe(ctx waitctx.RestrictiveContext) error {
 	if err != nil {
 		return err
 	}
-	lg.With(
-		"address", listener.Addr(),
-	).Info("ui server starting")
+	lg.Info("ui server starting", "address", listener.Addr())
 	proxyTracer := otel.Tracer("dashboard-proxy")
 	webFsTracer := otel.Tracer("webfs")
 	router := gin.New()
@@ -104,11 +102,7 @@ func (ws *Server) ListenAndServe(ctx waitctx.RestrictiveContext) error {
 	opniApiAddr := ws.config.HTTPListenAddress
 	mgmtUrl, err := url.Parse("http://" + opniApiAddr)
 	if err != nil {
-		lg.With(
-			"url", opniApiAddr,
-			"error", err,
-		).Panic("failed to parse management API URL")
-		return err
+		panic("failed to parse management API URL")
 	}
 	router.Any("/opni-api/*any", gin.WrapH(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -138,18 +132,14 @@ func (ws *Server) ListenAndServe(ctx waitctx.RestrictiveContext) error {
 
 		req, err := http.NewRequestWithContext(ctx, r.Method, u.String(), r.Body)
 		if err != nil {
-			lg.With(
-				zap.Error(err),
-			).Error("failed to create request")
+			lg.Error("failed to create request", logger.Err(err))
 			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		req.Header = r.Header
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			lg.With(
-				zap.Error(err),
-			).Error("failed to round-trip management api request")
+			lg.Error("failed to round-trip management api request", logger.Err(err))
 			if errors.Is(err, ctx.Err()) {
 				rw.WriteHeader(http.StatusGatewayTimeout)
 				return

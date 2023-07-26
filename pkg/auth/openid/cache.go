@@ -2,10 +2,11 @@ package openid
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 
-	"go.uber.org/zap"
+	"github.com/rancher/opni/pkg/logger"
 )
 
 type UserInfo struct {
@@ -27,12 +28,12 @@ type UserInfoCache struct {
 	mu         sync.Mutex
 	config     *OpenidConfig
 	wellKnown  *WellKnownConfiguration
-	logger     *zap.SugaredLogger
+	logger     *slog.Logger
 }
 
 func NewUserInfoCache(
 	config *OpenidConfig,
-	logger *zap.SugaredLogger,
+	logger *slog.Logger,
 	opts ...ClientOption,
 ) (*UserInfoCache, error) {
 	options := ClientOptions{
@@ -69,9 +70,7 @@ func (c *UserInfoCache) Get(accessToken string) (*UserInfo, error) {
 		WithHTTPClient(c.client),
 	)
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("failed to fetch user info")
+		lg.Error("failed to fetch user info", logger.Err(err))
 		return nil, err
 	}
 	info := &UserInfo{
@@ -80,16 +79,12 @@ func (c *UserInfoCache) Get(accessToken string) (*UserInfo, error) {
 	}
 	id, err := info.UserID()
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Error("user info is invalid")
+		lg.Error("user info is invalid", logger.Err(err))
 		return nil, err
 	}
 	if previousAccessToken, ok := c.knownUsers[id]; ok {
 		if previousAccessToken != accessToken {
-			lg.With(
-				info.identifyingClaim, id,
-			).Debug("user access token was refreshed")
+			lg.Debug("user access token was refreshed", info.identifyingClaim, id)
 			c.knownUsers[id] = accessToken
 			delete(c.cache, previousAccessToken)
 		}

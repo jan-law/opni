@@ -2,6 +2,7 @@ package node_backend
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -12,11 +13,11 @@ import (
 	"github.com/rancher/opni/pkg/auth/cluster"
 	"github.com/rancher/opni/pkg/capabilities"
 	"github.com/rancher/opni/pkg/capabilities/wellknown"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
 
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/pkg/util/future"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,7 +41,7 @@ type AlertingNodeBackend struct {
 	node.UnsafeNodeAlertingCapabilityServer
 	node.UnsafeAlertingNodeConfigurationServer
 
-	lg *zap.SugaredLogger
+	lg *slog.Logger
 
 	nodeStatusMu sync.RWMutex
 	nodeStatus   map[string]*capabilityv1.NodeCapabilityStatus
@@ -53,7 +54,7 @@ type AlertingNodeBackend struct {
 }
 
 func NewAlertingNodeBackend(
-	lg *zap.SugaredLogger,
+	lg *slog.Logger,
 ) *AlertingNodeBackend {
 	return &AlertingNodeBackend{
 		lg:                lg,
@@ -116,7 +117,7 @@ func (a *AlertingNodeBackend) requestNodeSync(ctx context.Context, node *corev1.
 		"capability", wellknown.CapabilityAlerting,
 	)
 	if err != nil {
-		lg.With(zap.Error(err)).Error("failed to request node sync; nodes may not be updated immediately")
+		lg.Error("failed to request node sync; nodes may not be updated immediately", logger.Err(err))
 	}
 
 	lg.Info("node sync requested")
@@ -222,7 +223,7 @@ func (a *AlertingNodeBackend) getNodeSpecOrDefault(ctx context.Context, id strin
 	if status.Code(err) == codes.NotFound {
 		return a.getDefaultNodeSpec(ctx)
 	} else if err != nil {
-		a.lg.With(zap.Error(err)).Error("failed to get node capability spec")
+		a.lg.Error("failed to get node capability spec", logger.Err(err))
 		return nil, status.Errorf(codes.Unavailable, "failed to get node capability spec: %v", err)
 	}
 	return nodeSpec, nil
@@ -260,10 +261,7 @@ func (a *AlertingNodeBackend) Sync(ctx context.Context, req *node.AlertingCapabi
 	status.Conditions = req.GetConditions()
 	status.LastSync = timestamppb.Now()
 
-	a.lg.With(
-		"id", id,
-		"time", status.LastSync.AsTime(),
-	).Debug("synced node")
+	a.lg.Debug("synced node", "id", id, "time", status.LastSync.AsTime())
 
 	nodeSpec, err := a.getNodeSpecOrDefault(ctx, id)
 	if err != nil {

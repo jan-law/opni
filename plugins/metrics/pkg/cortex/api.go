@@ -3,11 +3,11 @@ package cortex
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
 	"os"
 
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
 	"github.com/rancher/opni/pkg/auth"
@@ -43,7 +43,7 @@ type HttpApiServerConfig struct {
 	CortexClientSet  ClientSet                     `validate:"required"`
 	Config           *v1beta1.GatewayConfigSpec    `validate:"required"`
 	CortexTLSConfig  *tls.Config                   `validate:"required"`
-	Logger           *zap.SugaredLogger            `validate:"required"`
+	Logger           *slog.Logger                  `validate:"required"`
 	StorageBackend   storage.Backend               `validate:"required"`
 	AuthMiddlewares  map[string]auth.Middleware    `validate:"required"`
 }
@@ -70,9 +70,7 @@ func (p *HttpApiServer) ConfigureRoutes(router *gin.Engine) {
 	rbacMiddleware := rbac.NewMiddleware(rbacProvider, orgIDCodec)
 	authMiddleware, ok := p.AuthMiddlewares[p.Config.AuthProvider]
 	if !ok {
-		p.Logger.With(
-			"name", p.Config.AuthProvider,
-		).Error("auth provider not found")
+		p.Logger.Error("auth provider not found", "name", p.Config.AuthProvider)
 		os.Exit(1)
 	}
 
@@ -101,10 +99,7 @@ func (p *HttpApiServer) configureAlertmanager(router *gin.Engine, f *forwarders,
 		ids := rbac.AuthorizedClusterIDs(c)
 		if len(ids) > 1 {
 			user, _ := rbac.AuthorizedUserID(c)
-			p.Logger.With(
-				"request", c.FullPath(),
-				"user", user,
-			).Debug("multiple org ids found, limiting to first")
+			p.Logger.Debug("multiple org ids found, limiting to first", "request", c.FullPath(), "user", user)
 			c.Header(orgIDCodec.Key(), orgIDCodec.Encode(ids[:1]))
 		}
 		return

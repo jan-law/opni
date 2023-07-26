@@ -15,6 +15,7 @@ import (
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	managementv1 "github.com/rancher/opni/pkg/apis/management/v1"
 	"github.com/rancher/opni/pkg/caching"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/metrics/compat"
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/pkg/validation"
@@ -111,7 +112,7 @@ func (a *AlarmServerComponent) UpdateAlertCondition(ctx context.Context, req *al
 		return nil, err
 	}
 	lg := a.logger.With("handler", "UpdateAlertCondition")
-	lg.Debugf("Updating alert condition %s", req.Id)
+	lg.Debug("Updating alert condition", "reqId", req.Id)
 	conditionStorage := a.conditionStorage.Get()
 	conditionId := req.Id.Id
 	existingGroup := req.Id.GroupId
@@ -174,7 +175,7 @@ func (a *AlarmServerComponent) AlertConditionStatus(ctx context.Context, ref *al
 	// required info
 	cond, err := a.conditionStorage.Get().Group(ref.GroupId).Get(ctx, ref.Id)
 	if err != nil {
-		lg.Errorf("failed to find condition with id %s in storage : %s", ref.Id, err)
+		lg.Error("failed to find condition with id in storage", "ID", ref.Id, logger.Err(err))
 		return nil, shared.WithNotFoundErrorf("%s", err)
 	}
 	if cond.GetMetadata() != nil && cond.GetMetadata()[metadataInactiveAlarm] != "" {
@@ -369,7 +370,7 @@ func (a *AlarmServerComponent) CloneTo(ctx context.Context, req *alertingv1.Clon
 			cond.SetClusterId(&corev1.Reference{Id: ref})
 			_, err := a.CreateAlertCondition(ctx, cond)
 			if err != nil {
-				lg.Errorf("failed to create alert condition %s", err)
+				lg.Error("failed to create alert condition", logger.Err(err))
 			}
 			return err
 		})
@@ -487,7 +488,7 @@ func (a *AlarmServerComponent) Timeline(ctx context.Context, req *alertingv1.Tim
 				if alertingv1.IsInternalCondition(cond) {
 					activeWindows, err := a.incidentStorage.Get().GetActiveWindowsFromIncidentTracker(ctx, cond.Id, start, end)
 					if err != nil {
-						a.logger.Errorf("failed to get active windows from agent incident tracker : %s", err)
+						a.logger.Error("failed to get active windows from agent incident tracker", logger.Err(err))
 						return
 					}
 					for _, w := range activeWindows {
@@ -509,24 +510,24 @@ func (a *AlarmServerComponent) Timeline(ctx context.Context, req *alertingv1.Tim
 						Step:    durationpb.New(time.Minute * 1),
 					})
 					if err != nil {
-						lg.Errorf("failed to query active windows from cortex : %s", err)
+						lg.Error("failed to query active windows from cortex", logger.Err(err))
 						return
 					}
 					qr, err := compat.UnmarshalPrometheusResponse(res.Data)
 					if err != nil {
-						lg.Errorf("failed to unmarshal prometheus response : %s", err)
+						lg.Error("failed to unmarshal prometheus response", logger.Err(err))
 						return
 					}
 					matrix, err := qr.GetMatrix()
 					if err != nil || matrix == nil {
-						lg.Errorf("expected to get matrix from prometheus response : %s", err)
+						lg.Error("expected to get matrix from prometheus response", logger.Err(err))
 						return
 					}
 					windows := cortex.ReducePrometheusMatrix(matrix)
 					for _, w := range windows {
 						w.Ref = ref
 					}
-					lg.With("reduce-matrix", cond.Id).Infof("looking to reduce %d potential causes", len(*matrix))
+					lg.With("reduce-matrix", cond.Id).Info("looking to reduce potential causes", "num-causes", len(*matrix))
 					yieldedValues <- lo.T2(
 						ref,
 						&alertingv1.ActiveWindows{

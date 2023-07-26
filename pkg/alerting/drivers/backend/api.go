@@ -39,7 +39,7 @@ import (
 // 	expectClosure func(*http.Response) error
 // 	body          []byte
 // 	values        url.Values
-// 	logger        *zap.SugaredLogger
+// 	logger        *slog.Logger
 // }
 
 // type AlertManagerApiOption func(*AlertManagerApiOptions)
@@ -59,7 +59,7 @@ import (
 // 		},
 // 		body:   nil,
 // 		values: nil,
-// 		logger: logger.NewPluginLogger().Named("alerting"),
+// 		logger: logger.NewPluginLogger().WithGroup("alerting"),
 // 	}
 // }
 
@@ -105,7 +105,7 @@ import (
 // 	}
 // }
 
-// func WithLogger(logger *zap.SugaredLogger) AlertManagerApiOption {
+// func WithLogger(logger *slog.Logger) AlertManagerApiOption {
 // 	return func(o *AlertManagerApiOptions) {
 // 		o.logger = logger
 // 	}

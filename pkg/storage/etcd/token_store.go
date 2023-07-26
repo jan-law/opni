@@ -7,11 +7,11 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/lestrrat-go/backoff/v2"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/storage"
 	"github.com/rancher/opni/pkg/tokens"
 )
@@ -55,7 +55,7 @@ func (e *EtcdStore) DeleteToken(ctx context.Context, ref *corev1.Reference) erro
 		defer func(id int64) {
 			_, err := e.Client.Revoke(context.Background(), clientv3.LeaseID(id))
 			if err != nil {
-				e.Logger.Warnf("failed to revoke lease: %v", err)
+				e.Logger.Warn("failed to revoke lease", logger.Err(err))
 			}
 		}(t.Metadata.LeaseID)
 	}
@@ -143,9 +143,7 @@ func (e *EtcdStore) UpdateToken(ctx context.Context, ref *corev1.Reference, muta
 			Then(clientv3.OpPut(key, string(data), clientv3.WithIgnoreLease())).
 			Commit()
 		if err != nil {
-			e.Logger.With(
-				zap.Error(err),
-			).Error("error updating token")
+			e.Logger.Error("error updating token", logger.Err(err))
 			return err
 		}
 		if !txnResp.Succeeded {
@@ -188,24 +186,19 @@ func (e *EtcdStore) addLeaseMetadata(
 
 // garbageCollectToken performs a best-effort deletion of an expired token.
 func (e *EtcdStore) garbageCollectToken(token *corev1.BootstrapToken) {
-	e.Logger.With(
-		"token", token.GetTokenID(),
-	).Debug("garbage-collecting expired token")
+	e.Logger.Debug("garbage-collecting expired token", "token", token.GetTokenID())
 
 	if token.Metadata.LeaseID != 0 {
 		defer func(id int64) {
 			_, err := e.Client.Revoke(context.Background(), clientv3.LeaseID(id))
 			if err != nil {
-				e.Logger.Warnf("failed to revoke lease: %v", err)
+				e.Logger.Warn("failed to revoke lease", logger.Err(err))
 			}
 		}(token.Metadata.LeaseID)
 	}
 
 	_, err := e.Client.Delete(context.Background(), path.Join(e.Prefix, tokensKey, token.TokenID))
 	if err != nil {
-		e.Logger.With(
-			"token", token.TokenID,
-			"error", err,
-		).Warn("failed to garbage-collect expired token")
+		e.Logger.Warn("failed to garbage-collect expired token", logger.Err(err), "token", token.TokenID)
 	}
 }

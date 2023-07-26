@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	loggingv1beta1 "github.com/rancher/opni/apis/logging/v1beta1"
 	capabilityv1 "github.com/rancher/opni/pkg/apis/capability/v1"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/plugins/driverutil"
 	"github.com/rancher/opni/pkg/resources"
 	k8sutilerrors "github.com/rancher/opni/pkg/util/errors/k8sutil"
@@ -19,7 +21,6 @@ import (
 	opnimeta "github.com/rancher/opni/pkg/util/meta"
 	loggingerrors "github.com/rancher/opni/plugins/logging/pkg/errors"
 	"github.com/rancher/opni/plugins/logging/pkg/gateway/drivers/backend"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,7 +41,7 @@ type KubernetesManagerDriverOptions struct {
 	K8sClient         client.Client                  `option:"k8sClient"`
 	Namespace         string                         `option:"namespace"`
 	OpensearchCluster *opnimeta.OpensearchClusterRef `option:"opensearchCluster"`
-	Logger            *zap.SugaredLogger             `option:"logger"`
+	Logger            *slog.Logger                   `option:"logger"`
 }
 
 func NewKubernetesManagerDriver(options KubernetesManagerDriverOptions) (*KubernetesManagerDriver, error) {
@@ -115,7 +116,7 @@ func (d *KubernetesManagerDriver) StoreCluster(ctx context.Context, req *corev1.
 	}
 
 	if err := d.K8sClient.Create(ctx, loggingCluster); err != nil {
-		d.Logger.Errorf("failed to store cluster: %v", err)
+		d.Logger.Error("failed to store cluster", logger.Err(err))
 		k8sutilerrors.GRPCFromK8s(err)
 	}
 	return nil
@@ -129,7 +130,7 @@ func (d *KubernetesManagerDriver) getCluster(ctx context.Context, id string) (*o
 		client.InNamespace(d.Namespace),
 		client.MatchingLabels{resources.OpniClusterID: id},
 	); err != nil {
-		d.Logger.Errorf("failed to list logging clusters: %v", err)
+		d.Logger.Error("failed to list logging clusters", logger.Err(err))
 		return nil, k8sutilerrors.GRPCFromK8s(err)
 	}
 
@@ -164,7 +165,7 @@ func (d *KubernetesManagerDriver) StoreClusterMetadata(ctx context.Context, id, 
 	})
 
 	if err != nil {
-		d.Logger.Errorf("failed to update cluster data: %v", err)
+		d.Logger.Error("failed to update cluster data", logger.Err(err))
 		return k8sutilerrors.GRPCFromK8s(err)
 	}
 	return nil
@@ -178,7 +179,7 @@ func (d *KubernetesManagerDriver) DeleteCluster(ctx context.Context, id string) 
 		client.InNamespace(d.OpensearchCluster.Namespace),
 		client.MatchingLabels{resources.OpniClusterID: id},
 	); err != nil {
-		d.Logger.Errorf("failed to list logging clusters: %v", err)
+		d.Logger.Error("failed to list logging clusters", logger.Err(err))
 		return k8sutilerrors.GRPCFromK8s(err)
 	}
 
@@ -189,7 +190,7 @@ func (d *KubernetesManagerDriver) DeleteCluster(ctx context.Context, id string) 
 		loggingCluster := &loggingClusterList.Items[0]
 		err := d.K8sClient.Delete(ctx, loggingCluster)
 		if err != nil {
-			d.Logger.Errorf("failed to delete cluster: %v", err)
+			d.Logger.Error("failed to delete cluster", logger.Err(err))
 			return k8sutilerrors.GRPCFromK8s(err)
 		}
 		return nil
@@ -207,7 +208,7 @@ func (d *KubernetesManagerDriver) SetClusterStatus(ctx context.Context, id strin
 		client.InNamespace(d.Namespace),
 		client.MatchingLabels{resources.OpniClusterID: id},
 	); err != nil {
-		d.Logger.Errorf("failed to list logging clusters: %v", err)
+		d.Logger.Error("failed to list logging clusters", logger.Err(err))
 		return k8sutilerrors.GRPCFromK8s(err)
 	}
 
@@ -228,7 +229,7 @@ func (d *KubernetesManagerDriver) SetClusterStatus(ctx context.Context, id strin
 	})
 
 	if err != nil {
-		d.Logger.Errorf("failed to update logging cluster: %v", err)
+		d.Logger.Error("failed to update logging cluster", logger.Err(err))
 		return k8sutilerrors.GRPCFromK8s(err)
 	}
 	return nil
@@ -242,7 +243,7 @@ func (d *KubernetesManagerDriver) GetClusterStatus(ctx context.Context, id strin
 		client.InNamespace(d.Namespace),
 		client.MatchingLabels{resources.OpniClusterID: id},
 	); err != nil {
-		d.Logger.Errorf("failed to list logging clusters: %v", err)
+		d.Logger.Error("failed to list logging clusters", logger.Err(err))
 		return nil, k8sutilerrors.GRPCFromK8s(err)
 	}
 
@@ -311,7 +312,7 @@ func (d *KubernetesManagerDriver) StoreClusterReadUser(ctx context.Context, user
 	err = client.IgnoreAlreadyExists(d.K8sClient.Create(ctx, binding))
 
 	if err != nil {
-		d.Logger.Errorf("failed to store logging cluster binding: %v", err)
+		d.Logger.Error("failed to store logging cluster binding", logger.Err(err))
 		return k8sutilerrors.GRPCFromK8s(err)
 	}
 	return nil

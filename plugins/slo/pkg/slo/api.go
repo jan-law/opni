@@ -130,7 +130,7 @@ func (p *Plugin) DeleteSLO(ctx context.Context, req *corev1.Reference) (*emptypb
 	lg := p.logger
 	existing, err := p.storage.Get().SLOs.Get(ctx, path.Join("/slos", req.Id))
 	if err != nil {
-		lg.With("delete slo", req.Id).Error("failed to get slo to delete in K,V store")
+		lg.Error("failed to get slo to delete in K,V store", "delete slo", req.Id)
 		return nil, err
 	}
 	if err := checkDatasource(existing.SLO.GetDatasource()); err != nil {

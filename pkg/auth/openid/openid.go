@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -21,7 +22,6 @@ import (
 	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/rbac"
 	"github.com/rancher/opni/pkg/util"
-	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -37,7 +37,7 @@ const (
 type OpenidMiddleware struct {
 	keyRefresher *jwk.AutoRefresh
 	conf         *OpenidConfig
-	logger       *zap.SugaredLogger
+	logger       *slog.Logger
 
 	wellKnownConfig *WellKnownConfiguration
 	lock            sync.Mutex
@@ -58,7 +58,7 @@ func New(ctx context.Context, config v1beta1.AuthProviderSpec) (*OpenidMiddlewar
 	m := &OpenidMiddleware{
 		keyRefresher: jwk.NewAutoRefresh(ctx),
 		conf:         conf,
-		logger:       logger.New().Named("openid"),
+		logger:       logger.New().WithGroup("openid"),
 		configId:     string(sum[:]),
 	}
 
@@ -88,7 +88,7 @@ func (m *OpenidMiddleware) Handle(c *gin.Context) {
 	defer ca()
 	set, err := m.keyRefresher.Fetch(ctx, m.wellKnownConfig.JwksUri)
 	if err != nil {
-		lg.Errorf("failed to fetch JWK set: %v", err)
+		lg.Error("failed to fetch JWK set:", logger.Err(err))
 		c.AbortWithStatus(http.StatusServiceUnavailable)
 		return
 	}
@@ -104,13 +104,13 @@ func (m *OpenidMiddleware) Handle(c *gin.Context) {
 	case IDToken:
 		idt, err := ValidateIDToken(bearerToken, set)
 		if err != nil {
-			lg.Errorf("failed to validate ID token: %v", err)
+			lg.Error("failed to validate ID token:", logger.Err(err))
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
 		claim, ok := idt.Get(m.conf.IdentifyingClaim)
 		if !ok {
-			lg.Errorf("identifying claim %q not found in ID token", m.conf.IdentifyingClaim)
+			lg.Error("identifying claim not found in ID token", "claim", m.conf.IdentifyingClaim)
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
@@ -118,13 +118,13 @@ func (m *OpenidMiddleware) Handle(c *gin.Context) {
 	case Opaque:
 		userInfo, err := m.cache.Get(bearerToken)
 		if err != nil {
-			lg.Errorf("failed to get user info: %v", err)
+			lg.Error("failed to get user info:", logger.Err(err))
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
 		uid, err := userInfo.UserID()
 		if err != nil {
-			lg.Errorf("failed to get user id: %v", err)
+			lg.Error("failed to get user id:", logger.Err(err))
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
@@ -153,13 +153,9 @@ func (m *OpenidMiddleware) tryConfigureKeyRefresher(ctx context.Context) {
 			wellKnownCfg, err := m.conf.GetWellKnownConfiguration()
 			if err != nil {
 				if isDiscoveryErrFatal(err) {
-					lg.With(
-						zap.Error(err),
-					).Panic("fatal error fetching openid configuration")
+					panic("fatal error fetching openid configuration")
 				} else {
-					lg.With(
-						zap.Error(err),
-					).Warn("failed to fetch openid configuration (will retry)")
+					lg.Warn("failed to fetch openid configuration (will retry)", logger.Err(err))
 				}
 				continue
 			}
@@ -169,27 +165,20 @@ func (m *OpenidMiddleware) tryConfigureKeyRefresher(ctx context.Context) {
 	})
 
 	wellKnownCfg := result.(*WellKnownConfiguration)
-	lg.With(
-		"issuer", wellKnownCfg.Issuer,
-	).Info("successfully fetched openid configuration")
+	lg.Info("successfully fetched openid configuration", "issuer", wellKnownCfg.Issuer)
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	m.wellKnownConfig = wellKnownCfg
 	httpClient := http.DefaultClient
 	if m.conf.Discovery != nil && m.conf.Discovery.CACert != nil {
-		lg.With(
-			"filename", m.conf.Discovery.CACert,
-		).Info("using custom CA cert for openid discovery")
+		lg.Info("using custom CA cert for openid discovery", "filename", m.conf.Discovery.CACert)
 		certPool := x509.NewCertPool()
 		data, err := os.ReadFile(*m.conf.Discovery.CACert)
 		if err != nil {
-			lg.With(
-				zap.Error(err),
-				"filename", m.conf.Discovery.CACert,
-			).Panic("openid discovery: failed to read CA cert")
+			panic("openid discovery: failed to read CA cert")
 		}
 		if !certPool.AppendCertsFromPEM(data) {
-			lg.Panic("openid discovery: invalid ca cert")
+			panic("openid discovery: invalid ca cert")
 		}
 		httpClient = &http.Client{
 			Transport: &http.Transport{
@@ -205,8 +194,6 @@ func (m *OpenidMiddleware) tryConfigureKeyRefresher(ctx context.Context) {
 	var err error
 	m.cache, err = NewUserInfoCache(m.conf, m.logger, WithHTTPClient(httpClient))
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Panic("failed to create user info cache")
+		panic("failed to create user info cache")
 	}
 }

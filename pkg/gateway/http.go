@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -24,10 +25,10 @@ import (
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/pkg/util/fwd"
 	"github.com/samber/lo"
+	slogsampling "github.com/samber/slog-sampling"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
-	"go.uber.org/zap"
 )
 
 var (
@@ -45,7 +46,7 @@ var (
 type GatewayHTTPServer struct {
 	router            *gin.Engine
 	conf              *v1beta1.GatewayConfigSpec
-	logger            *zap.SugaredLogger
+	logger            *slog.Logger
 	tlsConfig         *tls.Config
 	metricsRouter     *gin.Engine
 	metricsRegisterer prometheus.Registerer
@@ -57,10 +58,10 @@ type GatewayHTTPServer struct {
 func NewHTTPServer(
 	ctx context.Context,
 	cfg *v1beta1.GatewayConfigSpec,
-	lg *zap.SugaredLogger,
+	lg *slog.Logger,
 	pl plugins.LoaderInterface,
 ) *GatewayHTTPServer {
-	lg = lg.Named("http")
+	lg = lg.WithGroup("http")
 
 	router := gin.New()
 	router.SetTrustedProxies(cfg.TrustedProxies)
@@ -97,9 +98,7 @@ func NewHTTPServer(
 
 	tlsConfig, _, err := httpTLSConfig(cfg)
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Panic("failed to load serving cert bundle")
+		panic("failed to load serving cert bundle")
 	}
 	srv := &GatewayHTTPServer{
 		router:            router,
@@ -122,9 +121,7 @@ func NewHTTPServer(
 		otelprom.WithoutTargetInfo(),
 	)
 	if err != nil {
-		lg.With(
-			zap.Error(err),
-		).Panic("failed to create prometheus exporter")
+		panic("failed to create prometheus exporter")
 	}
 
 	// We are using remote producers, but we need to register the exporter locally
@@ -142,10 +139,7 @@ func NewHTTPServer(
 		defer ca()
 		cfg, err := p.Configure(ctx, apiextensions.NewCertConfig(cfg.Certs))
 		if err != nil {
-			lg.With(
-				zap.String("plugin", md.Module),
-				zap.Error(err),
-			).Error("failed to configure routes")
+			lg.Error("failed to configure routes", logger.Err(err), "plugin", md.Module)
 			return
 		}
 		srv.setupPluginRoutes(cfg, md)
@@ -167,10 +161,7 @@ func (s *GatewayHTTPServer) ListenAndServe(ctx context.Context) error {
 		return err
 	}
 
-	lg.With(
-		"api", listener.Addr().String(),
-		"metrics", metricsListener.Addr().String(),
-	).Info("gateway HTTP server starting")
+	lg.Info("gateway HTTP server starting", "api", listener.Addr().String(), "metrics", metricsListener.Addr().String())
 
 	ctx, ca := context.WithCancel(ctx)
 
@@ -193,11 +184,11 @@ func (s *GatewayHTTPServer) setupPluginRoutes(
 	defer s.routesMu.Unlock()
 	tlsConfig := s.tlsConfig.Clone()
 	sampledLogger := logger.New(
-		logger.WithSampling(&zap.SamplingConfig{
-			Initial:    1,
-			Thereafter: 0,
+		logger.WithSampling(&slogsampling.ThresholdSamplingOption{
+			Threshold: 1,
+			Rate:      0,
 		}),
-	).Named("api")
+	).WithGroup("api")
 	forwarder := fwd.To(cfg.HttpAddr,
 		fwd.WithTLS(tlsConfig),
 		fwd.WithLogger(sampledLogger),
@@ -207,17 +198,11 @@ ROUTES:
 	for _, route := range cfg.Routes {
 		for _, reservedPrefix := range s.reservedPrefixRoutes {
 			if strings.HasPrefix(route.Path, reservedPrefix) {
-				s.logger.With(
-					"route", route.Method+" "+route.Path,
-					"plugin", pluginMeta.Module,
-				).Warn("skipping route for plugin as it conflicts with a reserved prefix")
+				s.logger.Warn("skipping route for plugin as it conflicts with a reserved prefix", "route", route.Method+" "+route.Path, "plugin", pluginMeta.Module)
 				continue ROUTES
 			}
 		}
-		s.logger.With(
-			"route", route.Method+" "+route.Path,
-			"plugin", pluginMeta.Module,
-		).Debug("configured route for plugin")
+		s.logger.Debug("configured route for plugin", "route", route.Method+" "+route.Path, "plugin", pluginMeta.Module)
 		s.router.Handle(route.Method, route.Path, forwarder)
 	}
 }

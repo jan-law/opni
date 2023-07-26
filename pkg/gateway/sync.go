@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"sync"
 	"time"
@@ -12,9 +13,9 @@ import (
 	capabilityv1 "github.com/rancher/opni/pkg/apis/capability/v1"
 	corev1 "github.com/rancher/opni/pkg/apis/core/v1"
 	"github.com/rancher/opni/pkg/auth/cluster"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/util"
 	"github.com/rancher/opni/pkg/validation"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -32,13 +33,13 @@ type SyncRequester struct {
 	capabilityv1.UnsafeNodeManagerServer
 	mu           sync.RWMutex
 	activeAgents map[string]agentv1.ClientSet
-	logger       *zap.SugaredLogger
+	logger       *slog.Logger
 }
 
-func NewSyncRequester(lg *zap.SugaredLogger) *SyncRequester {
+func NewSyncRequester(lg *slog.Logger) *SyncRequester {
 	return &SyncRequester{
 		activeAgents: make(map[string]agentv1.ClientSet),
-		logger:       lg.Named("sync"),
+		logger:       lg.WithGroup("sync"),
 	}
 }
 
@@ -46,7 +47,7 @@ func (f *SyncRequester) HandleAgentConnection(ctx context.Context, clientSet age
 	f.mu.Lock()
 	id := cluster.StreamAuthorizedID(ctx)
 	f.activeAgents[id] = clientSet
-	f.logger.With("id", id).Debug("agent connected")
+	f.logger.Debug("agent connected", "id", id)
 	f.mu.Unlock()
 
 	// blocks until ctx is canceled
@@ -59,7 +60,7 @@ func (f *SyncRequester) HandleAgentConnection(ctx context.Context, clientSet age
 
 	f.mu.Lock()
 	delete(f.activeAgents, id)
-	f.logger.With("id", id).Debug("agent disconnected")
+	f.logger.Debug("agent disconnected", "id", id)
 	f.mu.Unlock()
 }
 
@@ -85,17 +86,12 @@ func (f *SyncRequester) RequestSync(ctx context.Context, req *capabilityv1.SyncR
 	}
 
 	for _, clientSet := range toSync {
-		f.logger.With(
-			"agentId", req.GetCluster().GetId(),
-			"capabilities", req.GetFilter().GetCapabilityNames(),
-		).Debug("sending sync request to agent")
+		f.logger.Debug("sending sync request to agent", "agentId", req.GetCluster().GetId(), "capabilities", req.GetFilter().GetCapabilityNames())
 		_, err := clientSet.SyncNow(ctx, req.GetFilter())
 		code := status.Code(err)
 		mSyncRequests.WithLabelValues(req.GetCluster().GetId(), fmt.Sprint(code), code.String()).Inc()
 		if err != nil {
-			f.logger.With(
-				zap.Error(err),
-			).Warn("sync request failed")
+			f.logger.Warn("sync request failed", logger.Err(err))
 		}
 	}
 

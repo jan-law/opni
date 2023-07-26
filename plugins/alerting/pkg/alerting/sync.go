@@ -8,6 +8,7 @@ import (
 	"github.com/rancher/opni/pkg/alerting/storage/opts"
 	"github.com/rancher/opni/pkg/capabilities/wellknown"
 	"github.com/rancher/opni/pkg/health"
+	"github.com/rancher/opni/pkg/logger"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	alertingv1 "github.com/rancher/opni/pkg/apis/alerting/v1"
@@ -109,7 +110,7 @@ var (
 func (p *Plugin) createDefaultDisconnect(clusterId string) error {
 	conditions, err := p.storageClientSet.Get().Conditions().Group("").List(p.ctx, opts.WithUnredacted())
 	if err != nil {
-		p.logger.Errorf("failed to list alert conditions : %s", err)
+		p.logger.Error("failed to list alert conditions : ", logger.Err(err))
 		return err
 	}
 	disconnectExists := false
@@ -126,13 +127,15 @@ func (p *Plugin) createDefaultDisconnect(clusterId string) error {
 	}
 	_, err = p.CreateAlertCondition(p.ctx, DefaultDisconnectAlarm(clusterId))
 	if err != nil {
-		p.logger.Warnf(
-			"could not create a downstream agent disconnect condition  on cluster creation for cluster %s",
+		p.logger.Warn(
+			"could not create a downstream agent disconnect condition  on cluster creation for cluster",
+			"ID",
 			clusterId,
 		)
 	} else {
-		p.logger.Debugf(
+		p.logger.Debug(
 			"downstream agent disconnect condition on cluster creation for cluster %s is now active",
+			"clusterId",
 			clusterId,
 		)
 	}
@@ -142,7 +145,7 @@ func (p *Plugin) createDefaultDisconnect(clusterId string) error {
 func (p *Plugin) onDeleteClusterAgentDisconnectHook(ctx context.Context, clusterId string) error {
 	conditions, err := p.storageClientSet.Get().Conditions().Group("").List(p.ctx, opts.WithUnredacted())
 	if err != nil {
-		p.logger.Errorf("failed to list conditions from storage : %s", err)
+		p.logger.Error("failed to list conditions from storage : ", logger.Err(err))
 	}
 	var wg sync.WaitGroup
 	for _, cond := range conditions {
@@ -156,7 +159,7 @@ func (p *Plugin) onDeleteClusterAgentDisconnectHook(ctx context.Context, cluster
 						Id: cond.Id,
 					})
 					if err != nil {
-						p.logger.Errorf("failed to delete condition %s : %s", cond.Id, err)
+						p.logger.Error("failed to delete condition", "condition", cond.Id, logger.Err(err))
 					}
 				}()
 			}
@@ -169,7 +172,7 @@ func (p *Plugin) onDeleteClusterAgentDisconnectHook(ctx context.Context, cluster
 func (p *Plugin) createDefaultCapabilityHealth(clusterId string) error {
 	items, err := p.storageClientSet.Get().Conditions().Group("").List(p.ctx, opts.WithUnredacted())
 	if err != nil {
-		p.logger.Errorf("failed to list alert conditions : %s", err)
+		p.logger.Error("failed to list alert conditions : ", logger.Err(err))
 		return err
 	}
 	healthExists := false
@@ -188,13 +191,15 @@ func (p *Plugin) createDefaultCapabilityHealth(clusterId string) error {
 
 	_, err = p.CreateAlertCondition(p.ctx, DefaultCapabilityHealthAlarm(clusterId))
 	if err != nil {
-		p.logger.Warnf(
-			"could not create a default downstream capability health condition on cluster creation for cluster %s",
+		p.logger.Warn(
+			"could not create a default downstream capability health condition on cluster creation for cluster",
+			"ID",
 			clusterId,
 		)
 	} else {
-		p.logger.Debugf(
-			"downstream agent disconnect condition on cluster creation for cluster %s is now active",
+		p.logger.Debug(
+			"downstream agent disconnect condition on cluster creation for cluster is now active",
+			"ID",
 			clusterId,
 		)
 	}
@@ -204,7 +209,7 @@ func (p *Plugin) createDefaultCapabilityHealth(clusterId string) error {
 func (p *Plugin) onDeleteClusterCapabilityHook(ctx context.Context, clusterId string) error {
 	conditions, err := p.storageClientSet.Get().Conditions().Group("").List(p.ctx, opts.WithUnredacted())
 	if err != nil {
-		p.logger.Errorf("failed to list conditions from storage : %s", err)
+		p.logger.Error("failed to list conditions from storage : ", logger.Err(err))
 	}
 	var wg sync.WaitGroup
 	for _, cond := range conditions {
@@ -218,7 +223,7 @@ func (p *Plugin) onDeleteClusterCapabilityHook(ctx context.Context, clusterId st
 						Id: cond.Id,
 					})
 					if err != nil {
-						p.logger.Errorf("failed to delete condition %s : %s", cond.Id, err)
+						p.logger.Error("failed to delete condition", "condition", cond.Id, logger.Err(err))
 					}
 				}()
 			}

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/rancher/opni/pkg/auth/cluster"
 	"github.com/rancher/opni/pkg/capabilities"
 	"github.com/rancher/opni/pkg/capabilities/wellknown"
+	"github.com/rancher/opni/pkg/logger"
 	"github.com/rancher/opni/pkg/machinery/uninstall"
 	"github.com/rancher/opni/pkg/storage"
 	"github.com/rancher/opni/pkg/task"
@@ -20,7 +22,6 @@ import (
 	"github.com/rancher/opni/plugins/topology/apis/node"
 	"github.com/rancher/opni/plugins/topology/apis/orchestrator"
 	"github.com/rancher/opni/plugins/topology/pkg/topology/gateway/drivers"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -29,7 +30,7 @@ import (
 )
 
 type TopologyBackendConfig struct {
-	Logger              *zap.SugaredLogger             `validate:"required"`
+	Logger              *slog.Logger                   `validate:"required"`
 	StorageBackend      storage.Backend                `validate:"required"`
 	MgmtClient          managementv1.ManagementClient  `validate:"required"`
 	NodeManagerClient   capabilityv1.NodeManagerClient `validate:"required"`
@@ -120,24 +121,17 @@ func (t *TopologyBackend) requestNodeSync(ctx context.Context, cluster *corev1.R
 		name = "(all)"
 	}
 	if err != nil {
-		t.Logger.With(
-			"cluster", name,
-			"capability", wellknown.CapabilityTopology,
-			zap.Error(err),
-		).Warn("failed to request node sync; nodes may not be updated immediately")
+		t.Logger.Warn("failed to request node sync; nodes may not be updated immediately", logger.Err(err), "cluster", name, "capability", wellknown.CapabilityTopology)
 		return
 	}
-	t.Logger.With(
-		"cluster", name,
-		"capability", wellknown.CapabilityTopology,
-	).Info("node sync requested")
+	t.Logger.Info("capability", wellknown.CapabilityTopology, "cluster", name)
 }
 
 func (t *TopologyBackend) Install(ctx context.Context, req *capabilityv1.InstallRequest) (*capabilityv1.InstallResponse, error) {
 	ctxTimeout, ca := context.WithTimeout(ctx, time.Second*60)
 	defer ca()
 	if err := t.WaitForInitContext(ctxTimeout); err != nil {
-		// !! t.logger is not initialized if the deadline is exceeded
+		// !! t.Logger is not initialized if the deadline is exceeded
 		return nil, err
 	}
 
@@ -296,9 +290,7 @@ func (t *TopologyBackend) Sync(ctx context.Context, req *node.SyncRequest) (*nod
 	if enabled {
 		if err := t.ClusterDriver.ShouldDisableNode(cluster.Reference()); err != nil {
 			reason := status.Convert(err).Message()
-			t.Logger.With(
-				"reason", reason,
-			)
+			t.Logger.Error("error", "reason", reason)
 		}
 	}
 

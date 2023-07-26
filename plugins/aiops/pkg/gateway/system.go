@@ -11,6 +11,7 @@ import (
 	backoffv2 "github.com/lestrrat-go/backoff/v2"
 	"github.com/nats-io/nats.go"
 	opensearch "github.com/opensearch-project/opensearch-go"
+	"github.com/rancher/opni/pkg/logger"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	opsterv1 "opensearch.opster.io/api/v1"
@@ -67,7 +68,7 @@ FETCH:
 					s.Logger.Info("waiting for k8s object")
 					continue
 				}
-				s.Logger.Errorf("failed to check k8s object: %v", err)
+				s.Logger.Error("failed to check k8s object: ", logger.Err(err))
 				continue
 			}
 			break FETCH
