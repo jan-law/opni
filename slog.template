@@ -1,0 +1,9 @@
+package template
+
+func before(lg *zap.SugaredLogger, err error) {
+    return lg.Error(err)
+}
+
+func after(lg *zap.SugaredLogger, err error) {
+    return lg.Errorf("error: %v", err)
+}
