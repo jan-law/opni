@@ -9,6 +9,7 @@ package v1
 import (
 	context "context"
 	v11 "github.com/rancher/opni/pkg/apis/capability/v1"
+	v12 "github.com/rancher/opni/pkg/apis/control/v1"
 	v1 "github.com/rancher/opni/pkg/apis/core/v1"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -57,6 +58,7 @@ const (
 	Management_CancelCapabilityUninstall_FullMethodName = "/management.Management/CancelCapabilityUninstall"
 	Management_GetDashboardSettings_FullMethodName      = "/management.Management/GetDashboardSettings"
 	Management_UpdateDashboardSettings_FullMethodName   = "/management.Management/UpdateDashboardSettings"
+	Management_StreamAgentLogs_FullMethodName           = "/management.Management/StreamAgentLogs"
 )
 
 // ManagementClient is the client API for Management service.
@@ -100,6 +102,7 @@ type ManagementClient interface {
 	CancelCapabilityUninstall(ctx context.Context, in *CapabilityUninstallCancelRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetDashboardSettings(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DashboardSettings, error)
 	UpdateDashboardSettings(ctx context.Context, in *DashboardSettings, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	StreamAgentLogs(ctx context.Context, in *StreamAgentLogsRequest, opts ...grpc.CallOption) (Management_StreamAgentLogsClient, error)
 }
 
 type managementClient struct {
@@ -472,6 +475,38 @@ func (c *managementClient) UpdateDashboardSettings(ctx context.Context, in *Dash
 	return out, nil
 }
 
+func (c *managementClient) StreamAgentLogs(ctx context.Context, in *StreamAgentLogsRequest, opts ...grpc.CallOption) (Management_StreamAgentLogsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Management_ServiceDesc.Streams[2], Management_StreamAgentLogs_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &managementStreamAgentLogsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Management_StreamAgentLogsClient interface {
+	Recv() (*v12.StructuredLogRecord, error)
+	grpc.ClientStream
+}
+
+type managementStreamAgentLogsClient struct {
+	grpc.ClientStream
+}
+
+func (x *managementStreamAgentLogsClient) Recv() (*v12.StructuredLogRecord, error) {
+	m := new(v12.StructuredLogRecord)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // ManagementServer is the server API for Management service.
 // All implementations must embed UnimplementedManagementServer
 // for forward compatibility
@@ -513,6 +548,7 @@ type ManagementServer interface {
 	CancelCapabilityUninstall(context.Context, *CapabilityUninstallCancelRequest) (*emptypb.Empty, error)
 	GetDashboardSettings(context.Context, *emptypb.Empty) (*DashboardSettings, error)
 	UpdateDashboardSettings(context.Context, *DashboardSettings) (*emptypb.Empty, error)
+	StreamAgentLogs(*StreamAgentLogsRequest, Management_StreamAgentLogsServer) error
 	mustEmbedUnimplementedManagementServer()
 }
 
@@ -624,6 +660,9 @@ func (UnimplementedManagementServer) GetDashboardSettings(context.Context, *empt
 }
 func (UnimplementedManagementServer) UpdateDashboardSettings(context.Context, *DashboardSettings) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateDashboardSettings not implemented")
+}
+func (UnimplementedManagementServer) StreamAgentLogs(*StreamAgentLogsRequest, Management_StreamAgentLogsServer) error {
+	return status.Errorf(codes.Unimplemented, "method StreamAgentLogs not implemented")
 }
 func (UnimplementedManagementServer) mustEmbedUnimplementedManagementServer() {}
 
@@ -1274,6 +1313,27 @@ func _Management_UpdateDashboardSettings_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Management_StreamAgentLogs_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamAgentLogsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ManagementServer).StreamAgentLogs(m, &managementStreamAgentLogsServer{stream})
+}
+
+type Management_StreamAgentLogsServer interface {
+	Send(*v12.StructuredLogRecord) error
+	grpc.ServerStream
+}
+
+type managementStreamAgentLogsServer struct {
+	grpc.ServerStream
+}
+
+func (x *managementStreamAgentLogsServer) Send(m *v12.StructuredLogRecord) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // Management_ServiceDesc is the grpc.ServiceDesc for Management service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1423,6 +1483,11 @@ var Management_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "WatchClusterHealthStatus",
 			Handler:       _Management_WatchClusterHealthStatus_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StreamAgentLogs",
+			Handler:       _Management_StreamAgentLogs_Handler,
 			ServerStreams: true,
 		},
 	},

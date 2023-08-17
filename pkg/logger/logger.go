@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kralicky/gpkg/sync"
 	"github.com/lmittmann/tint"
 	slogmulti "github.com/samber/slog-multi"
 	slogsampling "github.com/samber/slog-sampling"
+	"github.com/spf13/afero"
 	"github.com/ttacon/chalk"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -40,12 +42,17 @@ var (
 	DefaultWriter      io.Writer
 	DefaultAddSource   = true
 	DefaultDisableTime = false
+	logFileName        = "opni-logs" // TODO place in ephemeral storage
+	logFs              afero.Fs
+	TimeFormat         = "2006 Jan 02 15:04:05"
 )
 
 func init() {
 	for level, color := range levelToColor {
 		levelToColorString[level.String()] = color.Color(level.String())
 	}
+	//logFs = afero.NewMemMapFs() //err unmarshal: string field contains invalid UTF-8
+	logFs = afero.NewOsFs()
 }
 
 func AsciiLogo() string {
@@ -55,13 +62,14 @@ func AsciiLogo() string {
 var s = &sampler{}
 
 type LoggerOptions struct {
-	Level       slog.Level
-	AddSource   bool
-	DisableTime bool
-	Color       *bool
-	Writer      io.Writer
-	Sampling    *slogsampling.ThresholdSamplingOption
-	ReplaceAttr func(groups []string, a slog.Attr) slog.Attr
+	Level         slog.Level
+	AddSource     bool
+	DisableTime   bool
+	Color         *bool
+	Writer        io.Writer
+	LogFileWriter bool
+	Sampling      *slogsampling.ThresholdSamplingOption
+	ReplaceAttr   func(groups []string, a slog.Attr) slog.Attr
 }
 
 func ParseLevel(lvl string) slog.Level {
@@ -91,6 +99,12 @@ func WithLogLevel(l slog.Level) LoggerOption {
 func WithWriter(w io.Writer) LoggerOption {
 	return func(o *LoggerOptions) {
 		o.Writer = w
+	}
+}
+
+func WithLogFileWriter() LoggerOption {
+	return func(o *LoggerOptions) {
+		o.LogFileWriter = true
 	}
 }
 
@@ -140,22 +154,36 @@ func trimSourcePath(a slog.Attr) string {
 	return fmt.Sprintf("%s:%d", source.File, source.Line)
 }
 
-func ConfigureOptions(opts *LoggerOptions) *slog.HandlerOptions {
-	return &slog.HandlerOptions{
+func ConfigureOptions(opts *LoggerOptions) *tint.Options {
+	return &tint.Options{
+		NoColor:   true,
 		Level:     opts.Level,
 		AddSource: opts.AddSource,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			switch a.Key {
+			case slog.TimeKey:
+				return slog.String(a.Key, time.Now().Format(TimeFormat))
+			case slog.LevelKey:
+				if a.Value.Kind() == slog.KindString {
+					return slog.String(a.Key, a.Value.String())
+				}
+				return slog.String(a.Key, slog.Level(a.Value.Int64()).String())
 			case slog.MessageKey:
 				return logWithDroppedCount(a)
 			case slog.SourceKey:
 				trimmedPath := trimSourcePath(a)
 				groupName := strings.Join(groups, ".")
 				return slog.String(a.Key, fmt.Sprintf("%s %s", groupName, trimmedPath))
-			default:
-				return a
 			}
+			return a
 		},
+	}
+}
+
+func ConfigureProtoOptions(opts *LoggerOptions) *slog.HandlerOptions {
+	return &slog.HandlerOptions{
+		Level:     opts.Level,
+		AddSource: opts.AddSource,
 	}
 }
 
@@ -178,6 +206,11 @@ func ConfigureColorOptions(opts *LoggerOptions) *tint.Options {
 					groupName = chalk.Green.Color(groupName)
 				}
 				return slog.String(a.Key, fmt.Sprintf("%s %s", groupName, trimmedPath))
+			default:
+				if err, ok := a.Value.Any().(error); ok {
+					return tint.Err(err)
+				}
+				return a
 			}
 			return a
 		},
@@ -205,22 +238,38 @@ func New(opts ...LoggerOption) *slog.Logger {
 		color = ColorEnabled()
 	}
 
-	var handler slog.Handler
+	// apply custom log formatting
+	var textHandler slog.Handler
 	if !color {
-		formatted := ConfigureOptions(options)
-		handler = slog.NewTextHandler(options.Writer, formatted)
+		defaultFormatting := ConfigureOptions(options)
+		textHandler = tint.NewHandler(options.Writer, defaultFormatting)
 	} else {
 		colorFormatted := ConfigureColorOptions(options)
-		handler = tint.NewHandler(options.Writer, colorFormatted)
+		textHandler = tint.NewHandler(options.Writer, colorFormatted)
 	}
 
+	// apply sampling options
 	if options.Sampling != nil {
-		return slog.New(slogmulti.
+		textHandler = slogmulti.
 			Pipe(options.Sampling.NewMiddleware()).
-			Handler(handler))
+			Handler(textHandler)
 	}
 
-	return slog.New(handler)
+	// write logs to a file
+	if options.LogFileWriter {
+		f, err := logFs.OpenFile(logFileName, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+		if err != nil {
+			panic(err)
+		}
+		// FIXME where to close this file?
+
+		logFileHandler := NewProtoHandler(f, ConfigureProtoOptions(options))
+
+		// distribute logs to handlers in parallel
+		return slog.New(slogmulti.Fanout(textHandler, logFileHandler))
+	}
+
+	return slog.New(textHandler)
 }
 
 func NewNop() *slog.Logger {
@@ -228,7 +277,7 @@ func NewNop() *slog.Logger {
 }
 
 func NewPluginLogger() *slog.Logger {
-	return New().WithGroup("plugin")
+	return New(WithLogFileWriter()).WithGroup("plugin")
 }
 
 type sampler struct {
@@ -239,6 +288,10 @@ func (s *sampler) onDroppedHook(_ context.Context, r slog.Record) {
 	key := r.Message
 	count, _ := s.dropped.LoadOrStore(key, 0)
 	s.dropped.Store(key, count+1)
+}
+
+func OpenLogFile() (afero.File, error) {
+	return logFs.OpenFile(logFileName, os.O_RDONLY|os.O_CREATE, 0666)
 }
 
 // todo: replace remaining zap loggers with slog when their dependencies support slog

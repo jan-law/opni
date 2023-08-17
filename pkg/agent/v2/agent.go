@@ -123,7 +123,8 @@ func New(ctx context.Context, conf *v1beta1.AgentConfig, opts ...AgentOption) (*
 	if conf.Spec.LogLevel != "" {
 		level = logger.ParseLevel(conf.Spec.LogLevel)
 	}
-	lg := logger.New(logger.WithLogLevel(level)).WithGroup("agent")
+
+	lg := logger.New(logger.WithLogLevel(level), logger.WithLogFileWriter()).WithGroup("agent")
 	lg.Debug("using log level:", "level", level.String())
 
 	var pl *plugins.PluginLoader
@@ -304,6 +305,14 @@ func New(ctx context.Context, conf *v1beta1.AgentConfig, opts ...AgentOption) (*
 	pl.Hook(hooks.OnLoadMC(func(ext types.StreamAPIExtensionPlugin, md meta.PluginMeta, cc *grpc.ClientConn) {
 		lg.Debug("loaded stream api extension plugin", "plugin", md.Module)
 		gatewayClient.RegisterSplicedStream(cc, md.Filename())
+	}))
+
+	ls := logger.NewLogServer()
+	controlv1.RegisterLogServer(gatewayClient, ls)
+
+	pl.Hook(hooks.OnLoadMC(func(lc controlv1.Log_StreamLogsClient, m meta.PluginMeta, cc *grpc.ClientConn) {
+		client := controlv1.NewLogClient(cc)
+		ls.AddClient(m.Filename(), client)
 	}))
 
 	return &Agent{
