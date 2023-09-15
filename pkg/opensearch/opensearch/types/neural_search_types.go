@@ -7,17 +7,20 @@ const (
 	ModelName                = "huggingface/sentence-transformers/all-distilroberta-v1"
 	ModelVersion             = "1.0.1"
 	ModelFormat              = "TORCH_SCRIPT"
+	ModelTypeBert            = "bert"
 	LogEmbeddingName         = "log_embedding"
 	ModelGroupName           = "opni-neural-search-model-group"
 	ModelGroupDesc           = "model group for neural search"
 	ModelAccess              = "private"
+	EmbeddingDimension       = 768
+	FrameworkType            = "SENTENCE_TRANSFORMERS"
 	DefaultSearchResultSize  = 10
 )
 
 var (
 	LogEmbeddingMappings = LogEmbeddingSpec{
 		Type:      "knn_vector",
-		Dimension: 768,
+		Dimension: EmbeddingDimension,
 		Method: MethodSpec{
 			Name:      "hnsw",
 			SpaceType: "l2",
@@ -32,6 +35,12 @@ var (
 	EnableMlAccessControl = MlSettings{
 		Transient: TransientMlSettings{
 			ModelAccessControlEnabled: true,
+		},
+	}
+
+	EnableRegisterViaUrl = MlSettings{
+		Transient: TransientMlSettings{
+			RegisterViaUrlEnabled: true,
 		},
 	}
 
@@ -70,6 +79,7 @@ type MlSettings struct {
 
 type TransientMlSettings struct {
 	ModelAccessControlEnabled bool `json:"plugins.ml_commons.model_access_control_enabled,omitempty"`
+	RegisterViaUrlEnabled     bool `json:"plugins.ml_commons.allow_registering_model_via_url,omitempty"`
 }
 
 type MethodSpec struct {
@@ -124,11 +134,18 @@ type GroupBody struct {
 }
 
 type ModelSpec struct {
-	Name         string `json:"name,omitempty"`
-	Version      string `json:"version,omitempty"`
-	Format       string `json:"model_format,omitempty"`
-	ModelGroupID string `json:"model_group_id,omitempty"`
-	Url          string `json:"url,omitempty"`
+	Name         string      `json:"name,omitempty"`
+	Version      string      `json:"version,omitempty"`
+	Format       string      `json:"model_format,omitempty"`
+	ModelGroupID string      `json:"model_group_id,omitempty"`
+	CustomUrl    string      `json:"url,omitempty"`
+	ModelConfig  ModelConfig `json:"model_config,omitempty"`
+}
+
+type ModelConfig struct {
+	ModelType     string `json:"model_type,omitempty"`
+	Dimension     int    `json:"embedding_dimension,omitempty"`
+	FrameworkType string `json:"framework_type,omitempty"`
 }
 
 type ModelResp struct {

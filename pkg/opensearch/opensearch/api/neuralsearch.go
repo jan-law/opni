@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/opensearch-project/opensearch-go/opensearchutil"
@@ -138,7 +139,12 @@ func generateModelRegisterBody(groupID string, customUrl string) io.Reader {
 	}
 
 	if customUrl != "" {
-		modelBody.Url = customUrl
+		modelBody.CustomUrl = customUrl
+		modelBody.ModelConfig = opensearchtypes.ModelConfig{
+			ModelType:     opensearchtypes.ModelTypeBert,
+			Dimension:     opensearchtypes.EmbeddingDimension,
+			FrameworkType: opensearchtypes.FrameworkType,
+		}
 	}
 
 	return opensearchutil.NewJSONReader(modelBody)
@@ -166,10 +172,33 @@ func generateEnableModelAccessControlBody() io.Reader {
 	return opensearchutil.NewJSONReader(opensearchtypes.EnableMlAccessControl)
 }
 
+func generateEnableRegisterViaUrlBody() io.Reader {
+	return opensearchutil.NewJSONReader(opensearchtypes.EnableRegisterViaUrl)
+}
+
 func (a *NeuralSearchAPI) PostEnableModelAccessControl(ctx context.Context) (*Response, error) {
 	method := http.MethodPost
 	path := clusterSettingsPath
 	body := generateEnableModelAccessControlBody()
+
+	req, err := http.NewRequest(method, path, body)
+	if err != nil {
+		return nil, err
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if body != nil {
+		req.Header.Add(headerContentType, jsonContentHeader)
+	}
+	res, err := a.Perform(req)
+	return (*Response)(res), err
+}
+
+func (a *NeuralSearchAPI) PostEnableRegisterViaUrl(ctx context.Context) (*Response, error) {
+	method := http.MethodPost
+	path := clusterSettingsPath
+	body := generateEnableRegisterViaUrlBody()
 
 	req, err := http.NewRequest(method, path, body)
 	if err != nil {
@@ -329,6 +358,9 @@ func (a *NeuralSearchAPI) MaybeCreateModelGroup(ctx context.Context) (string, er
 	if err != nil {
 		return "", err
 	}
+	if resp.IsError() {
+		return "", fmt.Errorf("register model error: %s, %s, ", resp.String(), resp.Status)
+	}
 	registerModelResp := types.ModelGroupRegisterResp{}
 	err = json.NewDecoder(resp.Body).Decode(&registerModelResp)
 	if err != nil {
@@ -356,16 +388,28 @@ func (a *NeuralSearchAPI) MaybeCreateRegisteredModel(ctx context.Context, groupI
 	if modelUploaded {
 		return modelSearchResp.ModelGroupHits.Hits[0].Source.ModelID, nil
 	}
+
+	// TODO if the customURL changed, register a new model instead of returning the existing model
+	if customUrl != "" {
+		resp, err = a.PostEnableRegisterViaUrl(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to enable model register via url: %s, error: %s", resp.String(), err)
+		}
+	}
+
 	resp, err = a.PostRegisterModel(ctx, groupID, customUrl)
 	if err != nil {
 		return "", err
 	}
-	uploadRes := types.ModelResp{}
-	err = json.NewDecoder(resp.Body).Decode(&uploadRes)
+	if reflect.TypeOf(resp.Status) == reflect.TypeOf(reflect.Int) {
+		return "", fmt.Errorf("failed to register model: %s", resp.String())
+	}
+	registerRes := types.ModelResp{}
+	err = json.NewDecoder(resp.Body).Decode(&registerRes)
 	if err != nil {
 		return "", err
 	}
-	uploadTaskID := uploadRes.TaskId
+	uploadTaskID := registerRes.TaskId
 
 	resp, err = a.GetModelTaskStatus(ctx, uploadTaskID)
 	if err != nil {
@@ -381,8 +425,12 @@ func (a *NeuralSearchAPI) MaybeCreateRegisteredModel(ctx context.Context, groupI
 		return "", err
 	}
 	modelID := modelStatusResp.ModelID
-	if modelStatusResp.State != types.ModelTaskStatusCompleted {
-		return "", fmt.Errorf("model not uploaded to opensearch: %s", resp.String())
+	if modelStatusResp.State == types.ModelTaskStatusFailed {
+		return "", fmt.Errorf("failed to register model: %s", resp.String())
+	}
+
+	if modelID == "" {
+		return "", fmt.Errorf("failed to register model: modelID is nil")
 	}
 	return modelID, nil
 }
