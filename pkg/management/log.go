@@ -14,6 +14,7 @@ func (m *Server) StreamAgentLogs(
 	req *managementv1.StreamAgentLogsRequest,
 	stream managementv1.Management_StreamAgentLogsServer,
 ) error {
+	// fixme how to connect to the agent properly?
 	cc, err := grpc.DialContext(stream.Context(), m.config.GRPCListenAddress,
 		grpc.WithBlock(),
 		grpc.WithContextDialer(util.DialProtocol),
@@ -31,7 +32,7 @@ func (m *Server) StreamAgentLogs(
 		Filters: req.Request.Filters,
 	}
 
-	agentStream, err := logClient.StreamLogs(stream.Context(), logReq)
+	agentStream, err := logClient.StreamLogs(stream.Context(), logReq, grpc.WaitForReady(true))
 	if err != nil {
 		return err
 	}

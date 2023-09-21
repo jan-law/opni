@@ -79,7 +79,6 @@ message LogStreamRequest {
   google.protobuf.Timestamp since = 1;
   google.protobuf.Timestamp until = 2;
   LogStreamFilters filters = 3;
-  bool follow = 4;
 }
 
 message LogStreamFilters {

@@ -350,7 +350,6 @@ func BuildDebugImportAgentCmd() *cobra.Command {
 func BuildDebugAgentLogsStreamGetCmd() *cobra.Command {
 	var since, until, level, output string
 	var names []string
-	var follow bool
 	cmd := &cobra.Command{
 		Use:   "agent-logs <cluster-id>",
 		Short: "Get agent logs",
@@ -393,12 +392,8 @@ func BuildDebugAgentLogsStreamGetCmd() *cobra.Command {
 			for {
 				msg, err := client.Recv()
 				if err != nil {
-					if follow && err == io.EOF {
-						continue // fixme
-					} else if err == io.EOF {
+					if err == io.EOF {
 						return nil
-					} else if follow && err == io.EOF {
-						continue
 					}
 					return fmt.Errorf("err recv: %v", err)
 				}
@@ -418,7 +413,6 @@ func BuildDebugAgentLogsStreamGetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&until, "until", "now", "End time")
 	cmd.Flags().StringSliceVar(&names, "name", nil, "Pattern filter(s) by component name")
 	cmd.Flags().StringVar(&level, "level", "info", "Minimum log level severity (debug, info, warn, error)")
-	cmd.Flags().BoolVar(&follow, "follow", false, "Follow log entries")
 	cmd.Flags().StringVar(&output, "output", "text", "Output format")
 	return cmd
 }

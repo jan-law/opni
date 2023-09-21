@@ -70,27 +70,10 @@ func (ls *LogServer) StreamLogs(req *controlv1.LogStreamRequest, stream controlv
 
 	defer f.Close()
 
-	err = getLogs(req, stream, f)
-	if err != nil {
-		return err
-	}
-
-	follow := req.Follow
-	if follow {
-		err = followLogs(req, stream)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func getLogs(req *controlv1.LogStreamRequest,
-	stream controlv1.Log_StreamLogsServer, f afero.File) error {
 	for {
 		msg, err := getLogMessage(req, f)
 		if err != nil && err == io.EOF {
-			break
+			return nil
 		} else if err != nil {
 			return err
 		}
@@ -103,9 +86,7 @@ func getLogs(req *controlv1.LogStreamRequest,
 			return err
 		}
 	}
-	return nil
 }
-
 func getLogMessage(req *controlv1.LogStreamRequest, f afero.File) (*controlv1.StructuredLogRecord, error) {
 	// todo optimize filtering logic
 	since := req.Since.AsTime()
@@ -149,13 +130,6 @@ func getLogMessage(req *controlv1.LogStreamRequest, f afero.File) (*controlv1.St
 	}
 
 	return record, nil
-}
-
-func followLogs(req *controlv1.LogStreamRequest,
-	stream controlv1.Log_StreamLogsServer) error {
-
-	// TODO
-	return nil
 }
 
 func matchesNameFilter(patterns []string, name string) bool {
